@@ -1,0 +1,3 @@
+[submodule "external/MagPhsT2"]
+	path = external/MagPhsT2
+	url = https://github.com/quantitative-mri-and-in-vivo-histology/MagPhsT2
