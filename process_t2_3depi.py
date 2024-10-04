@@ -228,9 +228,9 @@ def register_b1_map_to_t2w(base_dir=os.getcwd(), name="register_b1_map_to_t2w"):
         interface=util.IdentityInterface(fields=['out_file']),
         name='output_node')
 
-    flirt_estimate = pe.Node(fsl.FLIRT(uses_qform = True),
+    flirt_estimate = pe.Node(fsl.FLIRT(uses_qform = True, dof=6),
                              "flirt_estimate")
-    flirt_apply = pe.Node(fsl.FLIRT(apply_xfm=True, uses_qform = True),
+    flirt_apply = pe.Node(fsl.FLIRT(apply_xfm=True, uses_qform=True, dof=6),
                           "flirt_apply")
 
     first_volume_extractor = Node(fsl.ExtractROI(),
