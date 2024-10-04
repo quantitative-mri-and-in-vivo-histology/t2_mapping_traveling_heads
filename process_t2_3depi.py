@@ -19,14 +19,14 @@ from nipype_utils import ApplyXfm4D, BidsRename, get_common_parent_directory, \
 num_cores = multiprocessing.cpu_count()
 
 
-def subtract_background_phase(magnitude_in_file, phase_in_file):
+def subtract_background_phase(magnitude_file, phase_file):
     import nibabel as nib
     import numpy as np
     import os
 
     base_dir = os.getcwd()
-    mag_nib = nib.load(magnitude_in_file)
-    phase_nib = nib.load(phase_in_file)
+    mag_nib = nib.load(magnitude_file)
+    phase_nib = nib.load(phase_file)
     mag = mag_nib.get_fdata()
     phase = phase_nib.get_fdata()
 
@@ -169,79 +169,41 @@ def motion_correction_workflow(base_dir=os.getcwd(), name="motion_correction"):
     return workflow
 
 
-def preprocess_workflow(base_dir=os.getcwd(), name="preprocess"):
+def create_brain_mask(base_dir=os.getcwd(), name="create_brain_mask"):
     workflow = pe.Workflow(name=name)
     workflow.base_dir = base_dir
     input_node = pe.Node(interface=util.IdentityInterface(
-        fields=['magnitude_file', 'phase_file']), name='input_node')
+        fields=['in_file']),
+        name='input_node')
     output_node = pe.Node(interface=util.IdentityInterface(
-        fields=['magnitude_preprocessed_file', 'phase_preprocessed_file',
-                'magnitude_preprocessed_bg_sub_file',
-                'phase_preprocessed_bg_sub_file', 'brain_mask_file']),
+        fields=['out_file']),
         name='output_node')
-
-    denoise_wf = denoise_workflow()
-    motion_correction_wf = motion_correction_workflow()
-
-    scaling_factor = math.pi / 4096.0
-    scale_phase_from_siemens_to_rad = pe.Node(
-        fsl.ImageMaths(op_string='-mul {}'.format(scaling_factor)),
-        name="scale_phase_from_siemens_to_rad")
-
-    subtract_background_phase_node = Node(Function(
-        input_names=['magnitude_in_file', 'phase_in_file'],
-        output_names=['magnitude_out_file', 'phase_out_file'],
-        function=subtract_background_phase), name='subtract_background_phase')
 
     first_volume_extractor = Node(fsl.ExtractROI(),
                                   name="first_volume_extractor")
     first_volume_extractor.inputs.t_min = 0
     first_volume_extractor.inputs.t_size = 1
-
     bet_node = Node(fsl.BET(), name="bet")
     bet_node.inputs.robust = True
     bet_node.inputs.mask = True
 
-    # process
-    workflow.connect(input_node, "phase_file", scale_phase_from_siemens_to_rad,
-                     "in_file")
-    workflow.connect(scale_phase_from_siemens_to_rad, "out_file", denoise_wf,
-                     "input_node.phase_file")
-    workflow.connect(input_node, "magnitude_file", denoise_wf,
-                     "input_node.magnitude_file")
-    workflow.connect(denoise_wf, "output_node.magnitude_file",
-                     motion_correction_wf, "input_node.magnitude_file")
-    workflow.connect(denoise_wf, "output_node.phase_file", motion_correction_wf,
-                     "input_node.phase_file")
-    workflow.connect(motion_correction_wf, "output_node.magnitude_file",
-                     subtract_background_phase_node, "magnitude_in_file")
-    workflow.connect(motion_correction_wf, "output_node.phase_file",
-                     subtract_background_phase_node, "phase_in_file")
-    workflow.connect(subtract_background_phase_node, "magnitude_out_file",
+    workflow.connect(input_node, "in_file",
                      first_volume_extractor, "in_file")
-    workflow.connect(first_volume_extractor, "roi_file", bet_node, "in_file")
-
-    # set outputs
-    workflow.connect(motion_correction_wf, "output_node.magnitude_file",
-                     output_node, "magnitude_preprocessed_file")
-    workflow.connect(motion_correction_wf, "output_node.phase_file",
-                     output_node, "phase_preprocessed_file")
-    workflow.connect(subtract_background_phase_node, "magnitude_out_file",
-                     output_node, "magnitude_preprocessed_bg_sub_file")
-    workflow.connect(subtract_background_phase_node, "phase_out_file",
-                     output_node, "phase_preprocessed_bg_sub_file")
-    workflow.connect(bet_node, "out_file", output_node, "brain_mask_file")
-
+    workflow.connect(first_volume_extractor, "roi_file",
+                     bet_node, "in_file")
+    workflow.connect(bet_node, "mask_file",
+                     output_node, "out_file")
     return workflow
 
 
-def prepare_b1_map(base_dir=os.getcwd(), name="prepare_b1_map"):
+def scale_b1_map_to_percent(base_dir=os.getcwd(), name="scale_b1_map_to_percent"):
     workflow = pe.Workflow(name=name)
     workflow.base_dir = base_dir
     input_node = pe.Node(interface=util.IdentityInterface(
-        fields=['b1_map_file', 'reference_image_file']), name='input_node')
-    output_node = pe.Node(
-        interface=util.IdentityInterface(fields=['b1_map_file']),
+        fields=['in_file']),
+        name='input_node')
+    output_node = pe.Node(interface=util.IdentityInterface(
+        fields=['out_file']),
         name='output_node')
 
     scaling_factor = 100 / (60 * 10)  # fa * 10 [percent]
@@ -249,21 +211,129 @@ def prepare_b1_map(base_dir=os.getcwd(), name="prepare_b1_map"):
         fsl.ImageMaths(op_string='-mul {}'.format(scaling_factor)),
         name="scale_b1_to_percent")
 
-    align_b1 = pe.Node(fsl.FLIRT(), "align_b1")
-    align_b1.inputs.uses_qform = True
-    align_b1.inputs.apply_xfm = True
+    workflow.connect(input_node, "in_file",
+                     scale_b1_to_percent, "in_file")
+    workflow.connect(scale_b1_to_percent, "out_file",
+                     output_node, "out_file")
+    return workflow
+
+
+def register_b1_map_to_t2w(base_dir=os.getcwd(), name="register_b1_map_to_t2w"):
+    workflow = pe.Workflow(name=name)
+    workflow.base_dir = base_dir
+    input_node = pe.Node(interface=util.IdentityInterface(
+        fields=['b1_map_file', 'b1_anat_ref_file', 'target_file']),
+        name='input_node')
+    output_node = pe.Node(
+        interface=util.IdentityInterface(fields=['out_file']),
+        name='output_node')
+
+    flirt_estimate = pe.Node(fsl.FLIRT(uses_qform = True),
+                             "flirt_estimate")
+    flirt_apply = pe.Node(fsl.FLIRT(apply_xfm=True, uses_qform = True),
+                          "flirt_apply")
 
     first_volume_extractor = Node(fsl.ExtractROI(),
                                   name="first_volume_extractor")
     first_volume_extractor.inputs.t_min = 0
     first_volume_extractor.inputs.t_size = 1
 
-    workflow.connect(input_node, "reference_image_file", first_volume_extractor,
+    workflow.connect(input_node, "target_file",
+                     first_volume_extractor, "in_file")
+    workflow.connect(input_node, "b1_anat_ref_file",
+                     flirt_estimate, "in_file")
+    workflow.connect(first_volume_extractor, "roi_file",
+                     flirt_estimate, "reference")
+
+    workflow.connect(input_node, "b1_map_file",
+                     flirt_apply, "in_file")
+    workflow.connect(first_volume_extractor, "roi_file",
+                     flirt_apply, "reference")
+    workflow.connect(flirt_estimate, "out_matrix_file",
+                     flirt_apply, "in_matrix_file")
+
+    workflow.connect(flirt_apply, "out_file",
+                     output_node, "out_file")
+
+    return workflow
+
+
+def preprocess_workflow(base_dir=os.getcwd(), name="preprocess"):
+    workflow = pe.Workflow(name=name)
+    workflow.base_dir = base_dir
+    input_node = pe.Node(interface=util.IdentityInterface(
+        fields=['magnitude_file',
+                'phase_file',
+                'b1_map_file',
+                'b1_anat_ref_file']),
+        name='input_node')
+    output_node = pe.Node(interface=util.IdentityInterface(
+        fields=['magnitude_file',
+                'phase_file',
+                'b1_map_file',
+                'brain_mask_file']),
+        name='output_node')
+
+    # scale phase to radian
+    scaling_factor = math.pi / 4096.0
+    scale_phase_from_siemens_to_rad = pe.Node(
+        fsl.ImageMaths(op_string='-mul {}'.format(scaling_factor)),
+        name="scale_phase_from_siemens_to_rad")
+    workflow.connect(input_node, "phase_file", scale_phase_from_siemens_to_rad,
                      "in_file")
-    workflow.connect(input_node, "b1_map_file", scale_b1_to_percent, "in_file")
-    workflow.connect(scale_b1_to_percent, "out_file", align_b1, "in_file")
-    workflow.connect(first_volume_extractor, "roi_file", align_b1, "reference")
-    workflow.connect(align_b1, "out_file", output_node, "b1_map_file")
+
+    # denoise in T2w images
+    denoise_wf = denoise_workflow()
+    workflow.connect(scale_phase_from_siemens_to_rad, "out_file", denoise_wf,
+                     "input_node.phase_file")
+    workflow.connect(input_node, "magnitude_file", denoise_wf,
+                     "input_node.magnitude_file")
+
+    # correct motion in T2w images
+    motion_correction_wf = motion_correction_workflow()
+    workflow.connect(denoise_wf, "output_node.magnitude_file",
+                     motion_correction_wf, "input_node.magnitude_file")
+    workflow.connect(denoise_wf, "output_node.phase_file",
+                     motion_correction_wf, "input_node.phase_file")
+
+    # subtract background phase in T2w images
+    subtract_background_phase_node = Node(Function(
+        input_names=['magnitude_file', 'phase_file'],
+        output_names=['magnitude_file', 'phase_file'],
+        function=subtract_background_phase), name='subtract_background_phase')
+    workflow.connect(motion_correction_wf, "output_node.magnitude_file",
+                     subtract_background_phase_node, "magnitude_file")
+    workflow.connect(motion_correction_wf, "output_node.phase_file",
+                     subtract_background_phase_node, "phase_file")
+
+    # create brain mask for T2w images
+    create_brain_mask_wf = create_brain_mask()
+    workflow.connect(subtract_background_phase_node, "magnitude_file",
+                     create_brain_mask_wf, "input_node.in_file")
+
+    # scale b1 map to percent
+    scale_b1_map_to_percent_wf = scale_b1_map_to_percent()
+    workflow.connect(input_node, "b1_map_file",
+                     scale_b1_map_to_percent_wf, "input_node.in_file")
+
+    # compute b1 map in percent
+    register_b1_map_to_t2w_wf = register_b1_map_to_t2w()
+    workflow.connect(scale_b1_map_to_percent_wf, "output_node.out_file",
+                     register_b1_map_to_t2w_wf, "input_node.b1_map_file")
+    workflow.connect(input_node, "b1_anat_ref_file",
+                     register_b1_map_to_t2w_wf, "input_node.b1_anat_ref_file")
+    workflow.connect(subtract_background_phase_node, "magnitude_file",
+                     register_b1_map_to_t2w_wf, "input_node.target_file")
+
+    # set outputs
+    workflow.connect(subtract_background_phase_node, "magnitude_file",
+                     output_node, "magnitude_file")
+    workflow.connect(subtract_background_phase_node, "phase_file",
+                     output_node, "phase_file")
+    workflow.connect(create_brain_mask_wf, "output_node.out_file",
+                     output_node, "brain_mask_file")
+    workflow.connect(register_b1_map_to_t2w_wf, "output_node.out_file",
+                     output_node, "b1_map_file")
 
     return workflow
 
@@ -282,7 +352,8 @@ def compute_t2_t1_amplitude_maps(magnitude_file,
     base_dir = os.getcwd()
     output_dir = base_dir
 
-    cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file, repetition_time, flip_angle, delta_phi, outputdir=output_dir)
+    cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file,
+               repetition_time, flip_angle, delta_phi, outputdir=output_dir)
 
     t2_map_file = os.path.join(base_dir, "T2_.nii.gz")
     t1_map_file = os.path.join(base_dir, "T1_.nii.gz")
@@ -297,6 +368,8 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--input_directory", '-i',
                         help='bids input dataset root', type=str)
+    parser.add_argument("--input_derivatives", '-d',
+                        help='bids input dataset root', type=str, nargs='*')
     parser.add_argument("--output_directory", '-o',
                         help='output directory',
                         type=str)
@@ -315,7 +388,9 @@ def main():
     args = parser.parse_args()
 
     # collect inputs
-    layout = BIDSLayout(args.input_directory)
+    layout = BIDSLayout(args.input_directory,
+                        derivatives=args.input_derivatives,
+                        validate=False)
     inputs = []
     subjects = [args.subject_id] if isinstance(args.subject_id,
                                                str) else layout.get_subjects()
@@ -339,22 +414,42 @@ def main():
                                                 session=session, suffix="T2w",
                                                 extension="nii.gz",
                                                 part="phase", run=run)
+
                     t2w_magnitude_file = layout.get(subject=subject,
                                                     session=session,
                                                     suffix="T2w",
                                                     extension="nii.gz",
                                                     part="mag", run=run)
-                    b1_map_file = layout.get(subject=subject, session=session,
-                                             suffix="TB1map",
-                                             extension="nii.gz",
-                                             run=run)
+
+                    b1_map_files = layout.get(subject=subject, session=session,
+                                              suffix="TB1map",
+                                              extension="nii.gz",
+                                              run=run)
+
+                    b1_map_file = b1_map_files[0]
+                    for file in b1_map_files:
+                        if "wrapCorrected" in file.entities.get('desc', ''):
+                            b1_map_file = file
+                            break
+
+                    b1_mag1_files = layout.get(subject=subject, session=session,
+                                               suffix="magnitude1",
+                                               extension="nii.gz",
+                                               acquisition="dznebnB1",
+                                               run=run)
+                    b1_mag1_file = b1_mag1_files[0]
+                    for file in b1_mag1_files:
+                        if "wrapCorrected" in file.entities.get('desc', ''):
+                            b1_mag1_file = file
+                            break
 
                     inputs.append(dict(subject=subject,
                                        session=session,
                                        run=run,
                                        t2w_magnitude_file=t2w_magnitude_file[0],
                                        t2w_phase_file=t2w_phase_file[0],
-                                       b1_map_file=b1_map_file[0]))
+                                       b1_map_file=b1_map_file,
+                                       b1_anat_ref_file=b1_mag1_file))
 
     # generate input node from collected inputs
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
@@ -379,13 +474,10 @@ def main():
                preprocess_wf, "input_node.magnitude_file")
     wf.connect(input_node, "t2w_phase_file",
                preprocess_wf, "input_node.phase_file")
-
-    # compute b1 map in percent
-    prepare_b1_map_wf = prepare_b1_map()
     wf.connect(input_node, "b1_map_file",
-               prepare_b1_map_wf, "input_node.b1_map_file")
-    wf.connect(preprocess_wf, "output_node.magnitude_preprocessed_bg_sub_file",
-               prepare_b1_map_wf, "input_node.reference_image_file")
+               preprocess_wf, "input_node.b1_map_file")
+    wf.connect(input_node, "b1_anat_ref_file",
+               preprocess_wf, "input_node.b1_anat_ref_file")
 
     # map t1, t2 and am
     compute_t2_t1_am_node = Node(
@@ -400,11 +492,11 @@ def main():
     compute_t2_t1_am_node.inputs.delta_phi = [1, 1.5, 2, 3, 4, 5]
     wf.connect(preprocess_wf, "output_node.brain_mask_file",
                compute_t2_t1_am_node, "mask_file")
-    wf.connect(preprocess_wf, "output_node.magnitude_preprocessed_bg_sub_file",
+    wf.connect(preprocess_wf, "output_node.magnitude_file",
                compute_t2_t1_am_node, "magnitude_file")
-    wf.connect(preprocess_wf, "output_node.phase_preprocessed_bg_sub_file",
+    wf.connect(preprocess_wf, "output_node.phase_file",
                compute_t2_t1_am_node, "phase_file")
-    wf.connect(prepare_b1_map_wf, "output_node.b1_map_file",
+    wf.connect(preprocess_wf, "output_node.b1_map_file",
                compute_t2_t1_am_node, "b1_map_file")
 
     # set up output directories
@@ -425,7 +517,7 @@ def main():
                            "suffix}.nii.gz")
     bids_rename_mag_preproc = pe.Node(BidsRename(), "bids_rename_mag_preproc")
     bids_rename_mag_preproc.inputs.pattern = t2w_preproc_pattern
-    wf.connect(preprocess_wf, 'output_node.magnitude_preprocessed_file',
+    wf.connect(preprocess_wf, 'output_node.magnitude_file',
                bids_rename_mag_preproc, 'in_file')
     wf.connect(input_node, 't2w_magnitude_file',
                bids_rename_mag_preproc, 'template_file')
@@ -433,40 +525,15 @@ def main():
                data_sink, '@magnitude_preprocessed_file')
 
     # save output: magnitude image (preprocessed)
-    t2w_preproc_sub_bg_pattern = ("sub-{subject}_ses-{session}_acq-{"
-                                  "acquisition}[_run-{run}][_part-{"
-                                  "part}]_desc-preprocBgSub_{suffix}.nii.gz")
-    bids_rename_phase_preproc_bg_sub = pe.Node(BidsRename(),
-                                               "bids_rename_phase_preproc_bg_sub")
-    bids_rename_phase_preproc_bg_sub.inputs.pattern = t2w_preproc_sub_bg_pattern
     bids_rename_phase_preproc = pe.Node(BidsRename(),
                                         "bids_rename_phase_preproc")
     bids_rename_phase_preproc.inputs.pattern = t2w_preproc_pattern
-    wf.connect(preprocess_wf, 'output_node.phase_preprocessed_file',
+    wf.connect(preprocess_wf, 'output_node.phase_file',
                bids_rename_phase_preproc, 'in_file')
     wf.connect(input_node, 't2w_phase_file',
                bids_rename_phase_preproc, 'template_file')
     wf.connect(bids_rename_phase_preproc, 'out_file',
                data_sink, '@phase_preprocessed_file')
-
-    # save output: magnitude image (preprocessed, bg-subtracted)
-    bids_rename_mag_preproc_bg_sub = pe.Node(BidsRename(),
-                                             "bids_rename_mag_preproc_bg_sub")
-    bids_rename_mag_preproc_bg_sub.inputs.pattern = t2w_preproc_sub_bg_pattern
-    wf.connect(preprocess_wf, 'output_node.magnitude_preprocessed_bg_sub_file',
-               bids_rename_mag_preproc_bg_sub, 'in_file')
-    wf.connect(input_node, 't2w_magnitude_file',
-               bids_rename_mag_preproc_bg_sub, 'template_file')
-    wf.connect(bids_rename_mag_preproc_bg_sub, 'out_file',
-               data_sink, '@magnitude_preprocessed_bg_sub_file')
-
-    # save output: phase image (preprocessed, bg-subtracted)
-    wf.connect(preprocess_wf, 'output_node.phase_preprocessed_bg_sub_file',
-               bids_rename_phase_preproc_bg_sub, 'in_file')
-    wf.connect(input_node, 't2w_phase_file',
-               bids_rename_phase_preproc_bg_sub, 'template_file')
-    wf.connect(bids_rename_phase_preproc_bg_sub, 'out_file',
-               data_sink, '@phase_preprocessed_bg_sub_file')
 
     # save output: brain mask
     t2w_brain_mask_pattern = ("sub-{subject}_ses-{session}_acq-{acquisition}["
@@ -485,7 +552,7 @@ def main():
                       "run}]_desc-percent_TB1map.nii.gz")
     bids_rename_b1_map = pe.Node(BidsRename(), "bids_rename_b1_map")
     bids_rename_b1_map.inputs.pattern = b1_map_pattern
-    wf.connect(prepare_b1_map_wf, 'output_node.b1_map_file',
+    wf.connect(preprocess_wf, 'output_node.b1_map_file',
                bids_rename_b1_map, 'in_file')
     wf.connect(input_node, 'b1_map_file',
                bids_rename_b1_map, 'template_file')
