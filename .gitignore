@@ -150,6 +150,7 @@ codegen/
 *.nii
 *.nii.gz
 *.eps
+*.pklz
 
 data
 data/*
