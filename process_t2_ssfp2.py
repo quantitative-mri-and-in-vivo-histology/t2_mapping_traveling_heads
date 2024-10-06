@@ -72,6 +72,10 @@ class QiJsr(CommandLine):
         return outputs
 
 
+def all_files_length_one(*files):
+    return all(len(file) == 1 for file in files)
+
+
 def register_image(base_dir=os.getcwd(), name="register_image"):
     workflow = pe.Workflow(name=name)
     workflow.base_dir = base_dir
@@ -92,9 +96,20 @@ def register_image(base_dir=os.getcwd(), name="register_image"):
     first_volume_extractor.inputs.t_min = 0
     first_volume_extractor.inputs.t_size = 1
 
-    workflow.connect(input_node, "target_file",
-                     first_volume_extractor, "in_file")
+    bet_target = Node(fsl.BET(), name="bet_target")
+    bet_target.inputs.robust = True
+
+    bet_reference = Node(fsl.BET(), name="bet_reference")
+    bet_reference.inputs.robust = True
+
     workflow.connect(input_node, "reference_file",
+                     bet_reference, "in_file")
+    workflow.connect(input_node, "target_file",
+                     bet_target, "in_file")
+
+    workflow.connect(bet_target, "out_file",
+                     first_volume_extractor, "in_file")
+    workflow.connect(bet_reference, "out_file",
                      flirt_estimate, "in_file")
     workflow.connect(first_volume_extractor, "roi_file",
                      flirt_estimate, "reference")
@@ -192,62 +207,67 @@ def main():
                     t1w_a2_file = layout.get(subject=subject,
                                              session=session,
                                              suffix="T1w",
-                                             acquisition="t2Ssfp1A2",
+                                             acquisition="t2Ssfp2A2",
+                                             part='mag',
                                              extension="nii.gz",
                                              run=run)
 
                     t1w_a13_file = layout.get(subject=subject,
                                               session=session,
                                               suffix="T1w",
-                                              acquisition="t2Ssfp1A13",
+                                              acquisition="t2Ssfp2A13",
+                                              part='mag',
                                               extension="nii.gz",
                                               run=run)
 
                     t2w_a12rf180_file = layout.get(subject=subject,
                                                    session=session,
                                                    suffix="T2w",
-                                                   acquisition="t2Ssfp1A12RF180",
+                                                   acquisition="t2Ssfp2A12RF180",
+                                                   part='mag',
                                                    extension="nii.gz",
                                                    run=run)
 
                     t2w_a49rf0_file = layout.get(subject=subject,
                                                  session=session,
                                                  suffix="T2w",
-                                                 acquisition="t2Ssfp1A49RF0",
+                                                 acquisition="t2Ssfp2A49RF0",
+                                                 part='mag',
                                                  extension="nii.gz",
                                                  run=run)
 
                     t2w_a49rf180_file = layout.get(subject=subject,
                                                    session=session,
                                                    suffix="T2w",
-                                                   acquisition="t2Ssfp1A49RF180",
+                                                   acquisition="t2Ssfp2A49RF180",
+                                                   part='mag',
                                                    extension="nii.gz",
                                                    run=run)
 
                     b1_map_file = layout.get(subject=subject,
                                              session=session,
-                                             suffix="TB1TFL",
-                                             acquisition="famp",
+                                             suffix="B1map",
                                              extension="nii.gz",
                                              run=run)
 
                     b1_anat_ref_file = layout.get(subject=subject,
                                                   session=session,
-                                                  suffix="TB1TFL",
+                                                  suffix="B1ref",
                                                   extension="nii.gz",
-                                                  acquisition="anat",
                                                   run=run)
 
-                    inputs.append(dict(subject=subject,
-                                       session=session,
-                                       run=run,
-                                       t1w_a2_file=t1w_a2_file[0],
-                                       t1w_a13_file=t1w_a13_file[0],
-                                       t2w_a12rf180_file=t2w_a12rf180_file[0],
-                                       t2w_a49rf0_file=t2w_a49rf0_file[0],
-                                       t2w_a49rf180_file=t2w_a49rf180_file[0],
-                                       b1_map_file=b1_map_file[0],
-                                       b1_anat_ref_file=b1_anat_ref_file[0]))
+                    if all_files_length_one(t1w_a2_file, t1w_a13_file, t2w_a12rf180_file, t2w_a49rf0_file,
+                                            t2w_a49rf180_file, b1_map_file, b1_anat_ref_file):
+                        inputs.append(dict(subject=subject,
+                                           session=session,
+                                           run=run,
+                                           t1w_a2_file=t1w_a2_file[0],
+                                           t1w_a13_file=t1w_a13_file[0],
+                                           t2w_a12rf180_file=t2w_a12rf180_file[0],
+                                           t2w_a49rf0_file=t2w_a49rf0_file[0],
+                                           t2w_a49rf180_file=t2w_a49rf180_file[0],
+                                           b1_map_file=b1_map_file[0],
+                                           b1_anat_ref_file=b1_anat_ref_file[0]))
 
     # generate input node from collected inputs
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
@@ -258,7 +278,7 @@ def main():
     input_node.synchronize = True
 
     # set up worfklow
-    wf = Workflow(name="bids_workflow",
+    wf = Workflow(name="t2_ssfp2_workflow",
                   base_dir=Path(args.output_directory).joinpath("nipype"))
     # Set the execution mode to sequential
     wf.config['execution'] = {
@@ -361,7 +381,7 @@ def main():
                      scale_t2w_a49rf180, "in_file")
 
     # scale b1 map
-    scaling_factor_b1 = 1./(79.99*10)
+    scaling_factor_b1 = 1./(100)
     scale_b1_map = pe.Node(
         fsl.ImageMaths(op_string='-mul {}'.format(scaling_factor_b1)),
         name="scale_b1_map")
