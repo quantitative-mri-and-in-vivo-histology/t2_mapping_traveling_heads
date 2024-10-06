@@ -389,7 +389,7 @@ def main():
 
     # run iq jsr
     qi_jsr = pe.Node(QiJsr(npsi=6), name="qi_jsr")
-    qi_jsr.json_file = "/home/laurin/workspace/t2_mapping_traveling_heads/qi_jsr_config.json"
+    qi_jsr.json_file = "qi_jsr_config.json"
     wf.connect(t1w_image_merge, "merged_file", qi_jsr, "spgr_file")
     wf.connect(t2w_image_merge, "merged_file", qi_jsr, "ssfp_file")
     wf.connect(scale_b1_map, "out_file", qi_jsr, "b1_file")
