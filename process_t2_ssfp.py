@@ -53,12 +53,11 @@ class QiJsrInputSpec(CommandLineInputSpec):
     b1_file = File(exists=True, desc='B1 map file', mandatory=True, position=2, argstr='--B1=%s')
     mask_file = File(exists=True, desc='Mask file', position=3, argstr='--mask=%s', mandatory=False)  # Optional
     npsi = traits.Int(6, desc='Number of PSI components', usedefault=True, position=4, argstr='--npsi=%d')
-    out_dir = traits.Str(desc='Output directory', usedefault=True, default_value=os.getcwd(), position=5, argstr='--out=%s')  # cwd by default
-    json_file = File(exists=True, desc='Input JSON file', position=-1, argstr='< %s')  # Input JSON at the end
+    json_file = File(exists=True, desc='Input JSON file', position=5, argstr='--json=%s')  # Use --json flag now
 
 # Define the output specification for QiJsr
 class QiJsrOutputSpec(TraitedSpec):
-    out_dir = traits.Str(desc='Output directory', exists=True)  # No specific out_file, just the output directory
+    out_dir = traits.Str(desc='Output directory', exists=True)  # The result will be saved in cwd by default
 
 # Define the custom command-line wrapper for QiJsr
 class QiJsr(CommandLine):
@@ -66,10 +65,10 @@ class QiJsr(CommandLine):
     input_spec = QiJsrInputSpec
     output_spec = QiJsrOutputSpec
 
-    # Override _list_outputs to ensure the output is generated in the current working directory by default
+    # Override _list_outputs to ensure the output is generated with a fixed suffix "jsr" in the cwd
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs['out_dir'] = os.path.abspath(self.inputs.out_dir)  # Default to current working directory
+        outputs['out_dir'] = os.path.join(os.getcwd(), 'jsr')  # Set the output path with fixed suffix "jsr"
         return outputs
 
 
@@ -178,10 +177,12 @@ def main():
             subject=subject)
         if sessions:  # Only add subjects with existing sessions
             for session in sessions:
-                valid_runs = layout.get(return_type='id', subject=subject,
-                                        session=session, target='run',
-                                        suffix='T2w',
-                                        part="phase", extension="nii.gz")
+                valid_runs = layout.get(return_type='id',
+                                        target='run',
+                                        subject=subject,
+                                        session=session,
+                                        suffix='T1w',
+                                        extension="nii.gz")
                 runs = [args.run_id] if isinstance(args.run_id,
                                                    str) else valid_runs
 
@@ -389,7 +390,7 @@ def main():
 
     # run iq jsr
     qi_jsr = pe.Node(QiJsr(npsi=6), name="qi_jsr")
-    qi_jsr.json_file = "qi_jsr_config.json"
+    qi_jsr.inputs.json_file = Path("qi_jsr_config.json").absolute().as_posix()
     wf.connect(t1w_image_merge, "merged_file", qi_jsr, "spgr_file")
     wf.connect(t2w_image_merge, "merged_file", qi_jsr, "ssfp_file")
     wf.connect(scale_b1_map, "out_file", qi_jsr, "b1_file")
