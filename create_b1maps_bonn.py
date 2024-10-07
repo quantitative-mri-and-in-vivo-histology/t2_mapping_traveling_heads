@@ -44,62 +44,152 @@ def reslice_image_to_target(base_dir=os.getcwd(), name="reslice_image_to_target"
     return workflow
 
 
+def register_image(base_dir=os.getcwd(), name="register_image"):
+    workflow = pe.Workflow(name=name)
+    workflow.base_dir = base_dir
+    input_node = pe.Node(interface=util.IdentityInterface(
+        fields=['moving_file', 'reference_file', 'target_file']),
+        name='input_node')
+    output_node = pe.Node(
+        interface=util.IdentityInterface(fields=['out_file']),
+        name='output_node')
+
+    flirt_estimate = pe.Node(fsl.FLIRT(uses_qform=True, dof=6),
+                             "flirt_estimate")
+    flirt_apply = pe.Node(fsl.FLIRT(apply_xfm=True, uses_qform=True, dof=6),
+                          "flirt_apply")
+
+    first_volume_extractor = Node(fsl.ExtractROI(),
+                                  name="first_volume_extractor")
+    first_volume_extractor.inputs.t_min = 0
+    first_volume_extractor.inputs.t_size = 1
+
+    bet_target = Node(fsl.BET(), name="bet_target")
+    bet_target.inputs.robust = True
+
+    bet_reference = Node(fsl.BET(), name="bet_reference")
+    bet_reference.inputs.robust = True
+
+    workflow.connect(input_node, "reference_file",
+                     bet_reference, "in_file")
+    workflow.connect(input_node, "target_file",
+                     bet_target, "in_file")
+
+    workflow.connect(bet_target, "out_file",
+                     first_volume_extractor, "in_file")
+    workflow.connect(bet_reference, "out_file",
+                     flirt_estimate, "in_file")
+    workflow.connect(first_volume_extractor, "roi_file",
+                     flirt_estimate, "reference")
+
+    workflow.connect(input_node, "moving_file",
+                     flirt_apply, "in_file")
+    workflow.connect(first_volume_extractor, "roi_file",
+                     flirt_apply, "reference")
+    workflow.connect(flirt_estimate, "out_matrix_file",
+                     flirt_apply, "in_matrix_file")
+
+    workflow.connect(flirt_apply, "out_file",
+                     output_node, "out_file")
+
+    return workflow
+
+
 # Core function to compute the B1 map
-def compute_b1_map_initial(b1_mag1_file, b1_mag2_file):
-    # Load input images
+def compute_b0_map(b0_phase2_file):
+
+    import nibabel as nib
+    import os
+
+    base_dir = os.getcwd()
+
+    # read ste and fid b1 magnitude images
+    b0_phase2_file_nib = nib.load(b0_phase2_file)
+    b0_phase2_image = b0_phase2_file_nib.get_fdata()
+
+    # Compute the B0 map
+    t_e = 0.002
+    b0_scaling_factor = 1.0/(4096*t_e*2)
+    b0_map = b0_scaling_factor*b0_phase2_image
+
+    # write b1 map
+    b0_output_filename = os.path.join(base_dir, 'b0map.nii.gz')
+    b0_image_nib = nib.Nifti1Image(b0_map, b0_phase2_file_nib.affine, b0_phase2_file_nib.header)
+    nib.save(b0_image_nib, b0_output_filename)
+
+    return b0_output_filename
+
+
+def compute_b1_map(b1_ste_file, b1_fid_file):
+
     import nibabel as nib
     import numpy as np
     import os
 
     base_dir = os.getcwd()
-    b1_mag1_image_nib = nib.load(b1_mag1_file)
-    b1_mag2_image_nib = nib.load(b1_mag2_file)
 
-    # Get the data arrays
-    b1_mag1_image = b1_mag1_image_nib.get_fdata()
-    b1_mag2_image = b1_mag2_image_nib.get_fdata()
+    # read ste and fid b1 magnitude images
+    b1_ste_file_nib = nib.load(b1_ste_file)
+    b1_fid_image_nib = nib.load(b1_fid_file)
+    b1_ste_image = b1_ste_file_nib.get_fdata()
+    b1_fid_image = b1_fid_image_nib.get_fdata()
 
     # Compute the B1 map
-    b1_map = 600*np.arctan(np.sqrt(np.divide(2*np.abs(b1_mag1_image),np.abs(b1_mag2_image))))
-    b1_output_filename = os.path.join(base_dir, 'b1_map_mag_init.nii.gz')
-    b1_image_nib = nib.Nifti1Image(b1_map, b1_mag1_image_nib.affine, b1_mag1_image_nib.header)
+    fa = 60
+    siemens_scaling_factor = 10
+    b1_scaling_factor = fa*siemens_scaling_factor
+    b1_map = b1_scaling_factor*np.arctan(np.sqrt(np.divide(2*np.abs(b1_ste_image),np.abs(b1_fid_image))))
+
+    # write b1 map
+    b1_output_filename = os.path.join(base_dir, 'b1map.nii.gz')
+    b1_image_nib = nib.Nifti1Image(b1_map, b1_ste_file_nib.affine, b1_ste_file_nib.header)
     nib.save(b1_image_nib, b1_output_filename)
 
     return b1_output_filename
 
 
 # Core function to compute the B1 map
-def compute_b1_map(b1_map_file, b0_mag1_file, b0_mag2_file, b1_mag1_file, b1_mag2_file):
+def compute_b1_ref(b1_ste_file, b1_fid_file):
+
+    import nibabel as nib
+    import numpy as np
+    import os
+
+    base_dir = os.getcwd()
+
+    # read ste and fid b1 magnitude images
+    b1_ste_file_nib = nib.load(b1_ste_file)
+    b1_fid_image_nib = nib.load(b1_fid_file)
+    b1_ste_image = b1_ste_file_nib.get_fdata()
+    b1_fid_image = b1_fid_image_nib.get_fdata()
+
+    # Compute the B1 ref
+    fa = 60
+    siemens_scaling_factor = 10
+    b1_scaling_factor = 1
+    b1_ref = b1_scaling_factor*(2*b1_ste_image+b1_fid_image)
+
+    # write b1 map
+    b1_output_filename = os.path.join(base_dir, 'b1ref.nii.gz')
+    b1_image_nib = nib.Nifti1Image(b1_ref, b1_ste_file_nib.affine, b1_ste_file_nib.header)
+    nib.save(b1_image_nib, b1_output_filename)
+
+    return b1_output_filename
+
+
+def correct_b1_map(b1_map_file, b0_map_file):
     # Load input images
     import nibabel as nib
     import numpy as np
     import os
 
     base_dir = os.getcwd()
-    b0_mag1_image_nib = nib.load(b0_mag1_file)
-    b0_mag2_image_nib = nib.load(b0_mag2_file)
-    b1_mag1_image_nib = nib.load(b1_mag1_file)
-    b1_mag2_image_nib = nib.load(b1_mag2_file)
-    b1_map_image_nib = nib.load(b1_map_file)
+    b1_map_file_nib = nib.load(b1_map_file)
+    b0_map_file_nib = nib.load(b0_map_file)
 
     # Get the data arrays
-    b0_mag1_image = b0_mag1_image_nib.get_fdata()
-    b0_mag2_image = b0_mag2_image_nib.get_fdata()
-    b1_mag1_image = b1_mag1_image_nib.get_fdata()
-    b1_mag2_image = b1_mag2_image_nib.get_fdata()
-    b1_map_image = b1_map_image_nib.get_fdata()
-
-    # # Compute the B1 map
-    # b1_map_mag = 2 * b1_mag1_image + b1_mag2_image
-    # b1_output_filename = os.path.join(base_dir, 'b1_map_mag.nii.gz')
-    # b1_image_nib = nib.Nifti1Image(b1_map_mag, b0_mag1_image_nib.affine, b0_mag1_image_nib.header)
-    # nib.save(b1_image_nib, b1_output_filename)
-
-    # b1_map_mag = np.sqrt(2*np.divide(np.abs(b1_mag1_image),np.abs(b1_mag2_image)))
-    # b1_output_filename = os.path.join(base_dir, 'b1_map.nii.gz')
-    # b1_image_nib = nib.Nifti1Image(b1_map_mag, b0_mag1_image_nib.affine, b0_mag1_image_nib.header)
-    # nib.save(b1_image_nib, b1_output_filename)
-
+    b1_map_image = b1_map_file_nib.get_fdata()
+    b0_map_image = b0_map_file_nib.get_fdata()
 
     def cos_omega_eff(omega_eff, delta_omega, tau=2.445e-3):
         return np.cos(omega_eff * tau) + ((delta_omega / omega_eff) ** 2) * (1 - np.cos(omega_eff * tau))
@@ -112,7 +202,7 @@ def compute_b1_map(b1_map_file, b0_mag1_file, b0_mag2_file, b1_mag1_file, b1_mag
     tau = ImgPulDur
     fa_nominal = np.deg2rad(10.0)
     fa_actual = fa_nominal * b1_map_image / (ImgPulFA * 10.0)
-    delta_omega = b0_mag2_image * 2.0 * np.pi
+    delta_omega = b0_map_image * 2.0 * np.pi
 
     omega_eff = np.sqrt((delta_omega) ** 2 + (gamma_b1(fa_actual, tau=tau)) ** 2)  # nutation frequency
     cosine = cos_omega_eff(omega_eff=omega_eff, delta_omega=delta_omega, tau=tau)
@@ -120,7 +210,7 @@ def compute_b1_map(b1_map_file, b0_mag1_file, b0_mag2_file, b1_mag1_file, b1_mag
     b1_map = 100*fa_actual_with_offresonance/fa_nominal
 
     b1_output_filename = os.path.join(base_dir, 'b1_map_corr.nii.gz')
-    b1_image_nib = nib.Nifti1Image(b1_map, b0_mag1_image_nib.affine, b0_mag1_image_nib.header)
+    b1_image_nib = nib.Nifti1Image(b1_map, b0_map_file_nib.affine, b0_map_file_nib.header)
     nib.save(b1_image_nib, b1_output_filename)
 
     return b1_output_filename
@@ -184,21 +274,27 @@ def main():
                                                suffix="magnitude1",
                                                extension="nii.gz",
                                                acquisition="dznebnB0",
-                                               run='1')
+                                               run='2')
 
                     b0_mag2_files = layout.get(subject=subject, session=session,
                                                suffix="magnitude2",
                                                extension="nii.gz",
                                                acquisition="dznebnB0",
-                                               run='1')
+                                               run='2')
 
-                    b1_mag1_files = layout.get(subject=subject, session=session,
+                    b0_phase2_files = layout.get(subject=subject, session=session,
+                                               suffix="phase2",
+                                               extension="nii.gz",
+                                               acquisition="dznebnB0",
+                                               run='2')
+
+                    b1_ste_files = layout.get(subject=subject, session=session,
                                                suffix="magnitude1",
                                                extension="nii.gz",
                                                acquisition="dznebnB1",
                                                run=run)
 
-                    b1_mag2_files = layout.get(subject=subject, session=session,
+                    b1_fid_files = layout.get(subject=subject, session=session,
                                                suffix="magnitude2",
                                                extension="nii.gz",
                                                acquisition="dznebnB1",
@@ -210,8 +306,9 @@ def main():
                                        b1_map_file=b1_map_files[0],
                                        b0_mag1_file=b0_mag1_files[0],
                                        b0_mag2_file=b0_mag2_files[0],
-                                       b1_mag1_file=b1_mag1_files[0],
-                                       b1_mag2_file=b1_mag2_files[0]))
+                                       b0_phase2_file=b0_phase2_files[0],
+                                       b1_ste_file=b1_ste_files[0],
+                                       b1_fid_file=b1_fid_files[0]))
 
     # generate input node from collected inputs
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
@@ -222,7 +319,7 @@ def main():
     input_node.synchronize = True
 
     # set up worfklow
-    wf = Workflow(name="bids_workflow",
+    wf = Workflow(name="b0_b1_mapping",
                   base_dir=Path(args.output_directory).joinpath("nipype"))
     # Set the execution mode to sequential
     wf.config['execution'] = {
@@ -230,48 +327,65 @@ def main():
         'sequential': True  # This is key to process one subject at a time
     }
 
-    reslice_b1_mag1_to_b0_mag1 = reslice_image_to_target(name="reslice_b1_mag1_to_b0_mag1")
-    wf.connect(input_node, "b1_mag1_file",
-               reslice_b1_mag1_to_b0_mag1, "input_node.in_file")
-    wf.connect(input_node, "b0_mag1_file",
-               reslice_b1_mag1_to_b0_mag1, "input_node.target_file")
+    # compute b0
+    compute_b0_map_node = pe.Node(interface=util.Function(
+        input_names=['b0_phase2_file'],
+        output_names=['out_file'],
+        function=compute_b0_map),
+        name='compute_b0_map')
+    wf.connect(input_node, 'b0_phase2_file', compute_b0_map_node, 'b0_phase2_file')
 
-    reslice_b1_mag2_to_b0_mag1 = reslice_image_to_target(name="reslice_b1_mag2_to_b0_mag1")
-    wf.connect(input_node, "b1_mag2_file",
-               reslice_b1_mag2_to_b0_mag1, "input_node.in_file")
-    wf.connect(input_node, "b0_mag1_file",
-               reslice_b1_mag2_to_b0_mag1, "input_node.target_file")
-
-    reslice_b1_map_to_b0_mag1 = reslice_image_to_target(name="reslice_b1_map_to_b0_mag1")
-    wf.connect(input_node, "b1_map_file",
-               reslice_b1_map_to_b0_mag1, "input_node.in_file")
-    wf.connect(input_node, "b0_mag1_file",
-               reslice_b1_map_to_b0_mag1, "input_node.target_file")
-
-    compute_b1_node = pe.Node(interface=util.Function(
-        input_names=['b1_map_file', 'b0_mag1_file', 'b0_mag2_file', 'b1_mag1_file', 'b1_mag2_file'],
-        output_names=['b1_output_file'],
+    # compute b1 map
+    compute_b1_map_node = pe.Node(interface=util.Function(
+        input_names=['b1_ste_file', 'b1_fid_file'],
+        output_names=['out_file'],
         function=compute_b1_map),
-        name='compute_b1_node')
+        name='compute_b1_map')
+    wf.connect(input_node, 'b1_ste_file', compute_b1_map_node, 'b1_ste_file')
+    wf.connect(input_node, 'b1_fid_file', compute_b1_map_node, 'b1_fid_file')
 
-    compute_b1_initial_node = pe.Node(interface=util.Function(
-        input_names=[ 'b1_mag1_file', 'b1_mag2_file'],
+
+    # compute b1 anat ref
+    compute_b1_ref_node = pe.Node(interface=util.Function(
+        input_names=['b1_ste_file', 'b1_fid_file'],
+        output_names=['out_file'],
+        function=compute_b1_ref),
+        name='compute_b1_ref')
+    wf.connect(input_node, 'b1_ste_file', compute_b1_ref_node, 'b1_ste_file')
+    wf.connect(input_node, 'b1_fid_file', compute_b1_ref_node, 'b1_fid_file')
+
+    # reslice b1 map to b0
+    register_b1_map_to_b0_map = reslice_image_to_target(name="register_b1_map_to_b0_map")
+    wf.connect(compute_b1_map_node, "out_file",
+               register_b1_map_to_b0_map, "input_node.in_file")
+    wf.connect(compute_b0_map_node, "out_file",
+               register_b1_map_to_b0_map, "input_node.target_file")
+
+    # reslice b1 anat ref to b0
+    register_b1_ref_to_b0_map = reslice_image_to_target(name="register_b1_ref_to_b0_map")
+    wf.connect(compute_b1_ref_node, "out_file",
+               register_b1_ref_to_b0_map, "input_node.in_file")
+    wf.connect(compute_b1_ref_node, "out_file",
+               register_b1_ref_to_b0_map, "input_node.target_file")
+
+    # correct b1 map
+    correct_b1_map_node = pe.Node(interface=util.Function(
+        input_names=['b1_map_file', 'b0_map_file'],
         output_names=['b1_output_file'],
-        function=compute_b1_map_initial),
-        name='compute_b1_node_initial')
+        function=correct_b1_map),
+        name='correct_b1_map')
+    wf.connect(register_b1_map_to_b0_map, "output_node.out_file",
+               correct_b1_map_node, "b1_map_file")
+    wf.connect(compute_b0_map_node, "out_file",
+               correct_b1_map_node, "b0_map_file")
 
-    # Connect the nodes
-
-    wf.connect(input_node, 'b1_mag1_file', compute_b1_initial_node, 'b1_mag1_file')
-    wf.connect(input_node, 'b1_mag2_file', compute_b1_initial_node, 'b1_mag2_file')
-
-    # wf.connect(input_node, 'b1_map_file', compute_b1_node, 'b1_map_file')
-    wf.connect(input_node, 'b0_mag1_file', compute_b1_node, 'b0_mag1_file')
-    wf.connect(input_node, 'b0_mag2_file', compute_b1_node, 'b0_mag2_file')
-
-    wf.connect(reslice_b1_mag1_to_b0_mag1, 'output_node.out_file', compute_b1_node, 'b1_mag1_file')
-    wf.connect(reslice_b1_mag2_to_b0_mag1, 'output_node.out_file', compute_b1_node, 'b1_mag2_file')
-    wf.connect(reslice_b1_map_to_b0_mag1, 'output_node.out_file', compute_b1_node, 'b1_map_file')
+    # scale b1 map to percent
+    scaling_factor = 100 / (60 * 10)  # fa * 10 [percent]
+    scale_b1_to_percent = pe.Node(
+        fsl.ImageMaths(op_string='-mul {}'.format(scaling_factor)),
+        name="scale_b1_to_percent")
+    wf.connect(compute_b1_map_node, "out_file",
+                     scale_b1_to_percent, "in_file")
 
     wf.run(plugin='MultiProc', plugin_args={'n_procs': args.n_procs})
 
