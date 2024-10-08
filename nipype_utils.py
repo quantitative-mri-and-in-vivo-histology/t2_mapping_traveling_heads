@@ -146,3 +146,66 @@ class BidsRename(BaseInterface):
         outputs[
             'out_file'] = self._out_file  # Return the filename generated in _run_interface
         return outputs
+
+
+from nipype.interfaces.base import (
+    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, traits, isdefined
+)
+import os
+
+# Define the input spec with optional output_dir
+class BidsOutputFormatterInputSpec(BaseInterfaceInputSpec):
+    in_file = File(exists=True, desc="Input BIDS file to rename")
+    subject = traits.Str(mandatory=True, desc="Subject id")
+    session = traits.Str(mandatory=True, desc="Session id")
+    run = traits.Either(None, traits.Int, desc="Run id (optional, can be None)")
+    pattern = traits.Str(mandatory=True, desc="Pattern for output filename")
+    output_dir = traits.Directory(desc="Directory where the renamed file will be saved (optional)")
+
+# Define the output spec with the output filename
+class BidsOutputFormatterOutputSpec(TraitedSpec):
+    out_file = File(desc="Generated output filename")
+
+# Define the interface for renaming the file based on BIDS metadata
+class BidsOutputFormatter(BaseInterface):
+    input_spec = BidsOutputFormatterInputSpec
+    output_spec = BidsOutputFormatterOutputSpec
+
+    def _run_interface(self, runtime):
+        # Get the input values
+        in_file = self.inputs.in_file
+        subject = self.inputs.subject
+        session = self.inputs.session
+        run = self.inputs.run
+        pattern = self.inputs.pattern
+
+        # Determine the output directory; use runtime.cwd if output_dir is not provided
+        output_dir = self.inputs.output_dir if isdefined(self.inputs.output_dir) else runtime.cwd
+
+        # Construct the filename based on the pattern
+        # Example pattern: "sub-{subject}_ses-{session}_run-{run}_desc-preproc.nii.gz"
+        if run is not None and isdefined(run):
+            # Replace placeholders with the provided values
+            filename = pattern.format(subject=subject, session=session, run=run)
+        else:
+            # If run is None or not defined, remove the "run" part from the pattern
+            filename = pattern.replace('_run-{run}', '')
+            filename = filename.format(subject=subject, session=session)
+
+        # Define the full output path
+        out_file = os.path.join(output_dir, filename)
+
+        # Perform the renaming operation (copying or renaming in place)
+        copyfile(in_file, out_file, copy=True)
+
+        # Store the output filename
+        self._out_file = out_file
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs[
+            'out_file'] = self._out_file  # Return the filename generated in _run_interface
+        return outputs
+
