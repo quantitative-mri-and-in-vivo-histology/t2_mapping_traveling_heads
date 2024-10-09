@@ -218,10 +218,11 @@ def main_bids(args):
     Path(args.output_directory).mkdir(exist_ok=True, parents=True)
     data_sink = pe.Node(nio.DataSink(), name='data_sink')
     data_sink.inputs.base_directory = args.output_directory
-    output_folder_node = Node(Function(input_names=['subject', 'session'],
+    output_folder_node = Node(Function(input_names=['subject', 'session', 'datatype'],
                                        output_names=['output_folder'],
                                        function=create_output_folder),
                               name='output_folder_node')
+    output_folder_node.inputs.datatype = "fmap"
     wf.connect(bids_input_node, 'subject', output_folder_node, 'subject')
     wf.connect(bids_input_node, 'session', output_folder_node, 'session')
     wf.connect(output_folder_node, 'output_folder', data_sink, 'container')
@@ -229,7 +230,7 @@ def main_bids(args):
     # write outputs in bids format
     wf_output_node = wf.get_node('output_node')
 
-    b0_map_pattern = "sub-{subject}_ses-{session}_run-{run}_B0map.nii.gz"
+    b0_map_pattern = "sub-{subject}_ses-{session}_acq-b0_run-{run}_phasediff.nii.gz"
     rename_bids_b0_map_file = pe.Node(BidsOutputFormatter(), name="rename_bids_b0_map")
     rename_bids_b0_map_file.inputs.pattern = b0_map_pattern
     wf.connect(wf_output_node, 'b0_map_file',
@@ -237,7 +238,7 @@ def main_bids(args):
     wf.connect(rename_bids_b0_map_file, 'out_file',
                data_sink, '@b0_map_file')
 
-    b1_anat_ref_file_pattern = "sub-{subject}_ses-{session}_acq-anat_run-{run}_magnitude.nii.gz"
+    b1_anat_ref_file_pattern = "sub-{subject}_ses-{session}_acq-b1anat_run-{run}_magnitude.nii.gz"
     rename_bids_b1_anat_ref_file = pe.Node(BidsOutputFormatter(), name="rename_bids_b1_anat_ref")
     rename_bids_b1_anat_ref_file.inputs.pattern = b1_anat_ref_file_pattern
     wf.connect(wf_output_node, 'b1_anat_ref_file',
