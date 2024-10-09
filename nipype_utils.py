@@ -98,8 +98,11 @@ def create_output_dir(base_dir, subject, session, run):
     return output_dir
 
 
-def create_output_folder(subject, session):
-    return f'sub-{subject}/ses-{session}'
+def create_output_folder(subject, session, datatype):
+    folder = f'sub-{subject}/ses-{session}'
+    if datatype is not None:
+        folder = "{}/{}".format(folder, datatype)
+    return folder
 
 
 class BidsRenameInputSpec(BaseInterfaceInputSpec):
