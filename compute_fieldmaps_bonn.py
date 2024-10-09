@@ -100,12 +100,7 @@ def bonn_fieldmaps_workflow(base_dir=os.getcwd(), name="bonn_fieldmaps"):
     return wf
 
 
-def collect_bids_hamburg_inputs(input_directory, input_derivatives, subject_id=None,
-                                session_id=None, run_id=None):
-    raise NotImplementedError()
-
-
-def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None,
+def collect_bids_inputs(input_directory, input_derivatives, subject_id=None,
                              session_id=None, run_id=None):
     layout = BIDSLayout(input_directory, derivatives=input_derivatives, validate=False)
 
@@ -169,8 +164,6 @@ def main_bids(args):
     parser = argparse.ArgumentParser(
         description='BIDS-based B1 map correction',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--dataset_name", '-x', required=True, type=str,
-                        help='BIDS input dataset name ("bonn" or "hamburg"')
     parser.add_argument("--input_directory", '-i', required=True, type=str,
                         help='BIDS input dataset root.')
     parser.add_argument("--input_derivatives", '-d', type=str, nargs='*',
@@ -189,18 +182,10 @@ def main_bids(args):
     args = parser.parse_args(args)
 
     # Use BIDS input handling and create the workflow
-    if args.dataset_name == "bonn":
-        inputs = collect_bids_bonn_inputs(args.input_directory, args.input_derivatives,
-                                          subject_id=args.subject_id,
-                                          session_id=args.session_id,
-                                          run_id=args.run_id)
-    elif args.dataset_name == "hamburg":
-        inputs = collect_bids_hamburg_inputs(args.input_directory, args.input_derivatives,
-                                             subject_id=args.subject_id,
-                                             session_id=args.session_id,
-                                             run_id=args.run_id)
-    else:
-        raise ValueError("Unknown dataset: {}".format(args.dataset_name))
+    inputs = collect_bids_inputs(args.input_directory, args.input_derivatives,
+                                      subject_id=args.subject_id,
+                                      session_id=args.session_id,
+                                      run_id=args.run_id)
 
     # generate input node from collected inputs
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
