@@ -55,6 +55,26 @@ def register_image(base_dir=os.getcwd(), name="register_image"):
 
     workflow.connect(flirt_apply, "out_file", output_node, "out_file")
 
+
+    # bet_target = Node(fsl.BET(), name="bet_target")
+    # bet_target.inputs.robust = True
+    #
+    # bet_reference = Node(fsl.BET(), name="bet_reference")
+    # bet_reference.inputs.robust = True
+    #
+    # workflow.connect(input_node, "reference_file", bet_reference, "in_file")
+    # workflow.connect(input_node, "target_file", bet_target, "in_file")
+    #
+    # workflow.connect(input_node, "target_file", first_volume_extractor, "in_file")
+    # workflow.connect(input_node, "reference_file", flirt_estimate, "in_file")
+    # workflow.connect(first_volume_extractor, "roi_file", flirt_estimate, "reference")
+    #
+    # workflow.connect(input_node, "moving_file", flirt_apply, "in_file")
+    # workflow.connect(first_volume_extractor, "roi_file", flirt_apply, "reference")
+    # workflow.connect(flirt_estimate, "out_matrix_file", flirt_apply, "in_matrix_file")
+    #
+    # workflow.connect(flirt_apply, "out_file", output_node, "out_file")
+
     return workflow
 
 
@@ -162,12 +182,17 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
                     part="phase",
                     extension="nii.gz"
                 )
-                runs = [run_id] if run_id is None else valid_runs
+                runs = [run_id] if isinstance(run_id,
+                                              str) else valid_runs
+
+                if len(runs) == 0:
+                    runs = [None]
 
                 for run in runs:
                     b0_map_files = layout.get(
                         subject=subject,
                         session=session,
+                        acquisition="b0",
                         suffix="phasediff",
                         extension="nii.gz",
                         run=run
@@ -186,18 +211,26 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
                     b1_map_files = layout.get(
                         subject=subject,
                         session=session,
-                        suffix="TB1map",
+                        suffix="B1map",
                         extension="nii.gz",
                         run=run
                     )
+
+                    b1_map_files = [f for f in b1_map_files
+                                         if f.entities.get(
+                            "desc") == "phaseWrapCorrected"]
+
                     b1_anat_ref_files = layout.get(
                         subject=subject,
                         session=session,
-                        acquisition="B1",
+                        acquisition="b1anat",
                         suffix="magnitude",
                         extension="nii.gz",
                         run=run
                     )
+
+                    b1_anat_ref_files = [f for f in b1_anat_ref_files
+                                         if f.entities.get("desc") == "phaseWrapCorrected"]
 
                     inputs.append({
                         "subject": subject,
@@ -276,17 +309,19 @@ def main_bids(args):
     Path(args.output_directory).mkdir(exist_ok=True, parents=True)
     data_sink = pe.Node(nio.DataSink(), name='data_sink')
     data_sink.inputs.base_directory = args.output_directory
-    output_folder_node = Node(Function(input_names=['subject', 'session'],
-                                       output_names=['output_folder'],
-                                       function=create_output_folder),
-                              name='output_folder_node')
+    output_folder_node = Node(
+        Function(input_names=['subject', 'session', 'datatype'],
+                 output_names=['output_folder'],
+                 function=create_output_folder),
+        name='output_folder_node')
+    output_folder_node.inputs.datatype = "fmap"
     wf.connect(bids_input_node, 'subject', output_folder_node, 'subject')
     wf.connect(bids_input_node, 'session', output_folder_node, 'session')
     wf.connect(output_folder_node, 'output_folder', data_sink, 'container')
 
     # write outputs in bids format
     wf_output_node = wf.get_node('output_node')
-    b1_map_pattern = "sub-{subject}_ses-{session}_run-{run}_desc-preproc_B1map.nii.gz"
+    b1_map_pattern = "sub-{subject}_ses-{session}_run-{run}_desc-b0Corrected_B1map.nii.gz"
     rename_bids_b1_map = pe.Node(BidsOutputFormatter(), name="rename_bids_b1_map")
     rename_bids_b1_map.inputs.pattern = b1_map_pattern
     wf.connect(bids_input_node, 'subject',
