@@ -1,0 +1,20 @@
+[
+    [
+        "function_str",
+        "def simple_copy(in_file, target):\n    \"\"\"\n    Copies a file to the specified target location, creating directories as needed.\n\n    Parameters:\n        in_file (str): Path to the input file that needs to be copied.\n        target (str): The full path (including filename) where the file should be copied.\n\n    Returns:\n        str: The path to the copied file (i.e., the target).\n    \"\"\"\n    import os\n    import shutil\n\n    # Ensure the directory for the target path exists.\n    os.makedirs(os.path.dirname(target), exist_ok=True)\n\n    # Copy the file to the target path.\n    shutil.copy(in_file, target)\n\n    print(target)\n\n    # Return the target path.\n    return target\n"
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/prepare_data/correct_phase_wrap_around/27624d33364e4bd4ce278cd88e7d2d62e2664135/impaint_b1_map/image_smoothed.nii.gz",
+            "ee7afd8bb74017e6f47949f49e64e79a"
+        ]
+    ],
+    [
+        "target",
+        [
+            "/media/laurin/Data_share/Travel_Head_Study/Bonn_Skyra_3T_LowRes_bids/derivatives/nipype/sub-phy003/ses-001/fmap/sub-phy003_ses-001_desc-percent_B1map.nii.gz",
+            "891f7c7974e2a5bb67f2d5c288e43919"
+        ]
+    ]
+]

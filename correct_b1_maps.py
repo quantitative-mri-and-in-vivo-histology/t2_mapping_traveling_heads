@@ -47,14 +47,16 @@ def register_image(base_dir=os.getcwd(), name="register_image"):
 
     workflow.connect(bet_target, "out_file", first_volume_extractor, "in_file")
     workflow.connect(bet_reference, "out_file", flirt_estimate, "in_file")
-    workflow.connect(first_volume_extractor, "roi_file", flirt_estimate, "reference")
+    workflow.connect(first_volume_extractor, "roi_file", flirt_estimate,
+                     "reference")
 
     workflow.connect(input_node, "moving_file", flirt_apply, "in_file")
-    workflow.connect(first_volume_extractor, "roi_file", flirt_apply, "reference")
-    workflow.connect(flirt_estimate, "out_matrix_file", flirt_apply, "in_matrix_file")
+    workflow.connect(first_volume_extractor, "roi_file", flirt_apply,
+                     "reference")
+    workflow.connect(flirt_estimate, "out_matrix_file", flirt_apply,
+                     "in_matrix_file")
 
     workflow.connect(flirt_apply, "out_file", output_node, "out_file")
-
 
     # bet_target = Node(fsl.BET(), name="bet_target")
     # bet_target.inputs.robust = True
@@ -78,7 +80,8 @@ def register_image(base_dir=os.getcwd(), name="register_image"):
     return workflow
 
 
-def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees, fa_nominal_in_degrees, pulse_duration_in_seconds):
+def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees,
+                   fa_nominal_in_degrees, pulse_duration_in_seconds):
     import nibabel as nib
     import numpy as np
     import os
@@ -91,7 +94,8 @@ def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees, fa_nominal_in_deg
     b0_map_image = b0_map_file_nib.get_fdata()
 
     def cos_omega_eff(omega_eff, delta_omega, tau=2.445e-3):
-        return np.cos(omega_eff * tau) + ((delta_omega / omega_eff) ** 2) * (1 - np.cos(omega_eff * tau))
+        return np.cos(omega_eff * tau) + ((delta_omega / omega_eff) ** 2) * (
+                    1 - np.cos(omega_eff * tau))
 
     def gamma_b1(alpha, tau=2.445e-3):
         return alpha / tau
@@ -101,13 +105,16 @@ def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees, fa_nominal_in_deg
     fa_actual = fa_nominal * b1_map_image / (fa_b1_in_degrees * 10.0)
     delta_omega = b0_map_image * 2.0 * np.pi
 
-    omega_eff = np.sqrt((delta_omega) ** 2 + (gamma_b1(fa_actual, tau=tau)) ** 2)
-    cosine = cos_omega_eff(omega_eff=omega_eff, delta_omega=delta_omega, tau=tau)
+    omega_eff = np.sqrt(
+        (delta_omega) ** 2 + (gamma_b1(fa_actual, tau=tau)) ** 2)
+    cosine = cos_omega_eff(omega_eff=omega_eff, delta_omega=delta_omega,
+                           tau=tau)
     fa_actual_with_offresonance = np.arccos(cosine)
     b1_map = 100 * fa_actual_with_offresonance / fa_nominal
 
     b1_output_filename = os.path.join(base_dir, 'b1_map_corr.nii.gz')
-    b1_image_nib = nib.Nifti1Image(b1_map, b0_map_file_nib.affine, b0_map_file_nib.header)
+    b1_image_nib = nib.Nifti1Image(b1_map, b0_map_file_nib.affine,
+                                   b0_map_file_nib.header)
     nib.save(b1_image_nib, b1_output_filename)
 
     return b1_output_filename
@@ -131,9 +138,12 @@ def b1_correction_workflow(base_dir=os.getcwd(), name="b1_correction"):
 
     # Register B1 map to B0 map
     register_b1_map_to_b0_map = register_image(name="register_b1_map_to_b0_map")
-    wf.connect(input_node, "b1_map_file", register_b1_map_to_b0_map, "input_node.moving_file")
-    wf.connect(input_node, "b1_anat_ref_file", register_b1_map_to_b0_map, "input_node.reference_file")
-    wf.connect(input_node, "b0_anat_ref_file", register_b1_map_to_b0_map, "input_node.target_file")
+    wf.connect(input_node, "b1_map_file", register_b1_map_to_b0_map,
+               "input_node.moving_file")
+    wf.connect(input_node, "b1_anat_ref_file", register_b1_map_to_b0_map,
+               "input_node.reference_file")
+    wf.connect(input_node, "b0_anat_ref_file", register_b1_map_to_b0_map,
+               "input_node.target_file")
 
     # Correct B1 map
     correct_b1_map_node = Node(Function(
@@ -143,24 +153,31 @@ def b1_correction_workflow(base_dir=os.getcwd(), name="b1_correction"):
         function=correct_b1_map),
         name='correct_b1_map')
 
-    wf.connect(register_b1_map_to_b0_map, "output_node.out_file", correct_b1_map_node, "b1_map_file")
+    wf.connect(register_b1_map_to_b0_map, "output_node.out_file",
+               correct_b1_map_node, "b1_map_file")
     wf.connect(input_node, "b0_map_file", correct_b1_map_node, "b0_map_file")
-    wf.connect(input_node, "fa_b1_in_degrees", correct_b1_map_node, "fa_b1_in_degrees")
-    wf.connect(input_node, "fa_nominal_in_degrees", correct_b1_map_node, "fa_nominal_in_degrees")
-    wf.connect(input_node, "pulse_duration_in_seconds", correct_b1_map_node, "pulse_duration_in_seconds")
+    wf.connect(input_node, "fa_b1_in_degrees", correct_b1_map_node,
+               "fa_b1_in_degrees")
+    wf.connect(input_node, "fa_nominal_in_degrees", correct_b1_map_node,
+               "fa_nominal_in_degrees")
+    wf.connect(input_node, "pulse_duration_in_seconds", correct_b1_map_node,
+               "pulse_duration_in_seconds")
     wf.connect(correct_b1_map_node, "b1_output_file", output_node, "out_file")
 
     return wf
 
 
-def collect_bids_hamburg_inputs(input_directory, input_derivatives, subject_id=None,
-                        session_id=None, run_id=None):
+def collect_bids_hamburg_inputs(input_directory, input_derivatives,
+                                subject_id=None,
+                                session_id=None, run_id=None):
     raise NotImplementedError()
 
 
-def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None,
-                        session_id=None, run_id=None):
-    layout = BIDSLayout(input_directory, derivatives=input_derivatives, validate=False)
+def collect_bids_bonn_inputs(input_directory, input_derivatives,
+                             subject_id=None,
+                             session_id=None, run_id=None):
+    layout = BIDSLayout(input_directory, derivatives=input_derivatives,
+                        validate=False)
 
     # dataset constants
     fa_b1_in_degrees = 60
@@ -170,7 +187,8 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
     inputs = []
 
     for subject in subjects:
-        sessions = [session_id] if session_id else layout.get_sessions(subject=subject)
+        sessions = [session_id] if session_id else layout.get_sessions(
+            subject=subject)
         if sessions:
             for session in sessions:
                 valid_runs = layout.get(
@@ -197,7 +215,8 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
                         extension="nii.gz",
                         run=run
                     )
-                    b_maps_run_id = 1 if run is None else (run - 1) * 2 + 1 # dirty hack; todo: fix with IntendedFor field
+                    b_maps_run_id = 1 if run is None else (
+                                                                      run - 1) * 2 + 1  # dirty hack; todo: fix with IntendedFor field
 
                     b0_anat_ref_files = layout.get(
                         subject=subject,
@@ -217,7 +236,7 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
                     )
 
                     b1_map_files = [f for f in b1_map_files
-                                         if f.entities.get(
+                                    if f.entities.get(
                             "desc") == "phaseWrapCorrected"]
 
                     b1_anat_ref_files = layout.get(
@@ -230,7 +249,8 @@ def collect_bids_bonn_inputs(input_directory, input_derivatives, subject_id=None
                     )
 
                     b1_anat_ref_files = [f for f in b1_anat_ref_files
-                                         if f.entities.get("desc") == "phaseWrapCorrected"]
+                                         if f.entities.get(
+                            "desc") == "phaseWrapCorrected"]
 
                     inputs.append({
                         "subject": subject,
@@ -274,15 +294,17 @@ def main_bids(args):
 
     # Use BIDS input handling and create the workflow
     if args.dataset_name == "bonn":
-        inputs = collect_bids_bonn_inputs(args.input_directory, args.input_derivatives,
-                                 subject_id=args.subject_id,
-                                 session_id=args.session_id,
-                                 run_id=args.run_id)
+        inputs = collect_bids_bonn_inputs(args.input_directory,
+                                          args.input_derivatives,
+                                          subject_id=args.subject_id,
+                                          session_id=args.session_id,
+                                          run_id=args.run_id)
     elif args.dataset_name == "hamburg":
-        inputs = collect_bids_hamburg_inputs(args.input_directory, args.input_derivatives,
-                                     subject_id=args.subject_id,
-                                     session_id=args.session_id,
-                                     run_id=args.run_id)
+        inputs = collect_bids_hamburg_inputs(args.input_directory,
+                                             args.input_derivatives,
+                                             subject_id=args.subject_id,
+                                             session_id=args.session_id,
+                                             run_id=args.run_id)
     else:
         raise ValueError("Unknown dataset: {}".format(args.dataset_name))
 
@@ -294,14 +316,17 @@ def main_bids(args):
     wf = b1_correction_workflow(base_dir=args.output_directory)
 
     # set up bids input node
-    bids_input_node = Node(IdentityInterface(fields=list(inputs[0].keys())), name='bids_input_node')
+    bids_input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
+                           name='bids_input_node')
     keys = inputs[0].keys()
-    bids_input_node.iterables = [(key, [input_dict[key] for input_dict in inputs]) for key in keys]
+    bids_input_node.iterables = [
+        (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     bids_input_node.synchronize = True
 
     # connect bids inputs to workflow inputs
     wf_input_node = wf.get_node('input_node')
-    input_keys = [key for key in keys if key not in ["subject", "session", "run"]]
+    input_keys = [key for key in keys if
+                  key not in ["subject", "session", "run"]]
     for key in input_keys:
         wf.connect(bids_input_node, key, wf_input_node, key)
 
@@ -322,7 +347,8 @@ def main_bids(args):
     # write outputs in bids format
     wf_output_node = wf.get_node('output_node')
     b1_map_pattern = "sub-{subject}_ses-{session}_run-{run}_desc-b0Corrected_B1map.nii.gz"
-    rename_bids_b1_map = pe.Node(BidsOutputFormatter(), name="rename_bids_b1_map")
+    rename_bids_b1_map = pe.Node(BidsOutputFormatter(),
+                                 name="rename_bids_b1_map")
     rename_bids_b1_map.inputs.pattern = b1_map_pattern
     wf.connect(bids_input_node, 'subject',
                rename_bids_b1_map, 'subject')
@@ -356,7 +382,8 @@ def main_non_bids(args):
                         help='Flip angle for the B1 map in degrees.')
     parser.add_argument("--fa_nominal_in_degrees", type=float, required=True,
                         help='Nominal flip angle in degrees.')
-    parser.add_argument("--pulse_duration_in_seconds", type=float, required=True,
+    parser.add_argument("--pulse_duration_in_seconds", type=float,
+                        required=True,
                         help='Duration of the pulse in seconds.')
     parser.add_argument("--output_directory", '-o', required=True, type=str,
                         help='Output directory for results.')

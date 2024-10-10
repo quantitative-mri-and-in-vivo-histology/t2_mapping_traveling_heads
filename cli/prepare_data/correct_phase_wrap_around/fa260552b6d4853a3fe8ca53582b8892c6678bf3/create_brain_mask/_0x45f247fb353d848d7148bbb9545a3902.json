@@ -1,0 +1,23 @@
+[
+    [
+        "function_str",
+        "def create_brain_mask_from_anatomical_b1(in_file, threshold=200, fwhm=8):\n    \"\"\"\n    Shift a specified number of voxels along a given dimension and merge them to the other side.\n\n    Parameters:\n    in_file (str): Path to the input NIfTI file.\n    n_voxels (int): Number of voxels to shift.\n    axis (int): Dimension along which to shift (0 for x, 1 for y, 2 for z).\n    out_file (str): Path for the output NIfTI file.\n\n    Returns:\n    out_file (str): Path to the modified NIfTI file.\n    \"\"\"\n    import os\n    import nibabel as nib\n    import numpy as np\n    from scipy.ndimage import gaussian_filter\n\n    base_dir = os.getcwd()\n\n    # Load the NIfTI file\n    image_nib = nib.load(in_file)\n    image = image_nib.get_fdata()\n\n    sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))\n    smoothed_data = gaussian_filter(image, sigma=sigma)\n    brain_mask = smoothed_data > threshold\n\n    brain_mask_nib = nib.Nifti1Image(brain_mask, image_nib.affine,\n                                     image_nib.header)\n    out_file = os.path.join(base_dir, 'brain_mask.nii.gz')\n    nib.save(brain_mask_nib, out_file)\n\n    return out_file\n"
+    ],
+    [
+        "fwhm",
+        8
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/prepare_data/correct_phase_wrap_around/fa260552b6d4853a3fe8ca53582b8892c6678bf3/cut_and_merge_b1_anat_ref/image_shifted.nii.gz",
+            "4a700f4d60de2fadf084cf4bba42a395"
+        ]
+    ],
+    [
+        "needed_outputs",
+        [
+            "out_file"
+        ]
+    ]
+]

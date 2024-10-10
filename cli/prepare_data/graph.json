@@ -1,0 +1,121 @@
+[
+    {
+        "group": 1,
+        "imports": [],
+        "name": "00_unwrap_phase_b0",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [],
+        "name": "01_compute_b1_ref",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [],
+        "name": "02_cut_and_merge_b1_map",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [],
+        "name": "03_first_volume_extractor",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "00_unwrap_phase_b0"
+        ],
+        "name": "04_copy_b0_map",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "01_compute_b1_ref"
+        ],
+        "name": "05_cut_and_merge_b1_anat_ref",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "05_cut_and_merge_b1_anat_ref"
+        ],
+        "name": "06_create_brain_mask",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "02_cut_and_merge_b1_map",
+            "06_create_brain_mask"
+        ],
+        "name": "07_impaint_b1_map",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "05_cut_and_merge_b1_anat_ref",
+            "06_create_brain_mask"
+        ],
+        "name": "08_impaint_b1_anat_ref",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "07_impaint_b1_map"
+        ],
+        "name": "09_copy_b1_map",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "08_impaint_b1_anat_ref"
+        ],
+        "name": "10_copy_b1_anat_ref",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "08_impaint_b1_anat_ref",
+            "03_first_volume_extractor"
+        ],
+        "name": "11_flirt_estimate",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "07_impaint_b1_map",
+            "03_first_volume_extractor",
+            "11_flirt_estimate"
+        ],
+        "name": "12_flirt_apply",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "00_unwrap_phase_b0",
+            "12_flirt_apply"
+        ],
+        "name": "13_reslice",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "13_reslice",
+            "12_flirt_apply"
+        ],
+        "name": "14_correct_b1_map",
+        "size": 1
+    }
+]
