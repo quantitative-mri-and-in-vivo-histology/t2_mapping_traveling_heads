@@ -1,1 +1,0 @@
-bet sub-phy003_ses-001_acq-dznebnB0_run-1_magnitude1.nii.gz sub-phy003_ses-001_acq-dznebnB0_run-1_magnitude1_brain.nii.gz -R

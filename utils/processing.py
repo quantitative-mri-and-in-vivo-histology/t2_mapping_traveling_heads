@@ -45,7 +45,7 @@ def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees,
 
     tau = pulse_duration_in_seconds
     fa_nominal = np.deg2rad(fa_nominal_in_degrees)
-    fa_actual = fa_nominal * b1_map_image / (fa_b1_in_degrees * 10.0)
+    fa_actual = fa_nominal * b1_map_image
     delta_omega = b0_map_image * 2.0 * np.pi
 
     omega_eff = np.sqrt(
@@ -53,7 +53,7 @@ def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees,
     cosine = cos_omega_eff(omega_eff=omega_eff, delta_omega=delta_omega,
                            tau=tau)
     fa_actual_with_offresonance = np.arccos(cosine)
-    b1_map = 100 * fa_actual_with_offresonance / fa_nominal
+    b1_map = fa_actual_with_offresonance / fa_nominal
 
     b1_output_filename = os.path.join(base_dir, 'b1_map_corr.nii.gz')
     b1_image_nib = nib.Nifti1Image(b1_map, b0_map_file_nib.affine,
@@ -218,3 +218,27 @@ def inpaint(in_file, brain_mask_file, tissue_threshold=0, fwhm=2,
     nib.save(image_smoothed_nib, out_file)
 
     return out_file
+
+
+def compute_b1_magnitude_image_from_ste_lte(b1_ste_file, b1_fid_file):
+    import nibabel as nib
+    import os
+
+    base_dir = os.getcwd()
+
+    # read ste and fid b1 magnitude images
+    b1_ste_file_nib = nib.load(b1_ste_file)
+    b1_fid_image_nib = nib.load(b1_fid_file)
+    b1_ste_image = b1_ste_file_nib.get_fdata()
+    b1_fid_image = b1_fid_image_nib.get_fdata()
+
+    # Compute the B1 ref
+    b1_ref = (2 * b1_ste_image + b1_fid_image)
+
+    # write b1 map
+    b1_output_filename = os.path.join(base_dir, 'b1ref.nii.gz')
+    b1_image_nib = nib.Nifti1Image(b1_ref, b1_ste_file_nib.affine,
+                                   b1_ste_file_nib.header)
+    nib.save(b1_image_nib, b1_output_filename)
+
+    return b1_output_filename

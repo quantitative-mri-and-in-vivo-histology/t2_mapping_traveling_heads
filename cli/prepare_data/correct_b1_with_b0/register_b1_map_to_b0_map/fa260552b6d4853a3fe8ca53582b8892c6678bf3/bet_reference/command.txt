@@ -1,1 +1,0 @@
-bet image_smoothed.nii.gz image_smoothed_brain.nii.gz -R
