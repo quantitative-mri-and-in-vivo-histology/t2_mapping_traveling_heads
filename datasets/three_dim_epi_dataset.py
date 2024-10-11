@@ -123,13 +123,13 @@ class ThreeDimEpiDataset:
                 session=combination["session"],
                 run=combination["run"],
                 b1_map_file=self.get_b1_plus_relative_t2w_adjusted_map(
-                    **combination),
+                    **combination, generate=True),
                 b1_map_t2w_registered_file=self.get_b1_plus_relative_t2w_adjusted_registered_map(
                     **combination, generate=True),
                 b1_anat_ref_file=self.get_b1_anat_ref(
-                    **combination),
+                    **combination, generate=True),
                 t2w_phase_radian_raw_file=self.get_t2w_phase_radian_raw(
-                    **combination),
+                    **combination, generate=True),
                 t2w_phase_radian_preprocessed_file=self.get_t2w_phase_radian_preprocessed(
                     **combination,
                     generate=True),
@@ -204,7 +204,7 @@ class ThreeDimEpiDataset:
         # write preprocessed T2w phase image
         t2w_phase_preproc_data_sink = Node(
             ExplicitPathDataSink(), name='t2w_phase_preproc_data_sink')
-        wf.connect(subtract_background_phase_node, "magnitude_file",
+        wf.connect(subtract_background_phase_node, "phase_file",
                    t2w_phase_preproc_data_sink, "in_file")
         wf.connect(input_node, "t2w_phase_radian_preprocessed_file",
                    t2w_phase_preproc_data_sink, "out_file")
