@@ -272,7 +272,14 @@ class ThreeDimEpiDataset:
             (key, [input_dict[key] for input_dict in inputs]) for key in keys]
         input_node.synchronize = True
 
+        # scale B1 map to percent
+        scale_b1_to_percent = pe.Node(
+            fsl.ImageMaths(op_string='-mul 100.0'),
+            name="scale_b1_to_percent")
+        wf.connect(input_node, "b1_map_t2w_registered_file",
+                         scale_b1_to_percent, "in_file")
 
+        # compute T1, T2, AM
         compute_t2_t1_am_node = Node(
             Function(input_names=["magnitude_file", "phase_file", "mask_file",
                                   "b1_map_file", "repetition_time",
@@ -288,7 +295,7 @@ class ThreeDimEpiDataset:
                    compute_t2_t1_am_node, "magnitude_file")
         wf.connect(input_node, "t2w_phase_radian_preprocessed_file",
                    compute_t2_t1_am_node, "phase_file")
-        wf.connect(input_node, "b1_map_t2w_registered_file",
+        wf.connect(scale_b1_to_percent, "out_file",
                    compute_t2_t1_am_node, "b1_map_file")
         wf.connect(input_node, "fa_nominal_in_degrees",
                    compute_t2_t1_am_node, "flip_angle")
