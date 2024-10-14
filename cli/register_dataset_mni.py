@@ -1,23 +1,14 @@
 import argparse
 import os
 import multiprocessing
-from nipype import Workflow
-from nipype import Node, Workflow
-from nipype.interfaces.ants import Registration, ApplyTransforms
+from nipype import Workflow, Node, Function
 from nipype.interfaces.utility import IdentityInterface
-from nipype.interfaces.fsl import FLIRT, FNIRT, ApplyWarp, Info
-from datasets.dzne_three_dim_epi_dataset import DzneThreeDimEpiDataset
-# from datasets.kings_ssfp_dataset import KingsSsfpDataset
-# from datasets.uke_beat_ssfp_dataset import UkeBeatSsfpDataset
-# from datasets.uke_fibu_ssfp_dataset import UkeFibuSsfpDataset
+from nipype.interfaces.fsl import Info
 from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
-import nipype.interfaces.mrtrix3 as mrtrix3
-from nipype import Node, Function
-import nipype.interfaces.fsl as fsl
 import nipype.interfaces.ants as ants
-from nipype_utils import BidsRename, BidsOutputFormatter, BidsOutputWriter
+from nipype_utils import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 
 
@@ -64,6 +55,7 @@ def main():
     layout = BIDSLayout(args.bids_root,
                         derivatives=args.derivatives,
                         validate=False)
+
     inputs = []
     subjects = layout.get_subjects()
     subjects = ["phy002"]
