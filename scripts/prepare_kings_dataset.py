@@ -9,42 +9,7 @@ from nipype import Node
 from bids.layout import BIDSLayout
 import nipype.interfaces.fsl as fsl
 from nipype_utils import  BidsOutputWriter
-
-
-def find_image_and_json(layout, **query_dict):
-    """
-    Given a BIDS layout and query parameters, find the NIfTI image and its associated JSON sidecar.
-
-    Parameters:
-    - layout: A BIDSLayout object.
-    - query_dict: A dictionary of query parameters for searching the BIDS dataset (e.g., subject, session, suffix, etc.).
-
-    Returns:
-    - A tuple (nifti_file, json_dict):
-      - nifti_file: The path to the NIfTI image file.
-      - json_dict: The contents of the associated JSON sidecar file as a dictionary.
-    """
-    # Search for the NIfTI file
-    nifti_files = layout.get(**query_dict)
-    if len(nifti_files) != 1:
-        raise ValueError(
-            f"Expected one NIfTI file, found {len(nifti_files)} for query {query_dict}")
-
-    nifti_file = nifti_files[0]
-
-    # Find the associated JSON file
-    json_files = nifti_file.get_associations()
-    if len(json_files) != 1:
-        raise ValueError(
-            f"Expected one JSON file, found {len(json_files)} for {nifti_file.path}")
-
-    json_file = json_files[0].path
-
-    # Load the JSON data
-    with open(json_file, 'r') as f:
-        json_dict = json.load(f)
-
-    return nifti_file, json_dict
+from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 
 
 def main():
@@ -67,6 +32,13 @@ def main():
     if not args.derivatives or len(args.derivatives) == 0:
         raise ValueError(
             "At least one derivatives directory must be specified with the -d option.")
+
+    # write minimal dataset description for output derivatives
+    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    write_minimal_bids_dataset_description(
+        dataset_root=args.output_derivative_dir,
+        dataset_name=os.path.dirname(args.output_derivative_dir)
+    )
 
     # Define the reusable run settings in a dictionary
     run_settings = {
@@ -241,8 +213,6 @@ def main():
     out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
                   'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
                   '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-
-
 
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_formatter")

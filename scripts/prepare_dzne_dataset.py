@@ -33,7 +33,6 @@ def main():
         raise ValueError(
             "At least one derivatives directory must be specified with the -d option.")
 
-    # write minimal dataset description for output derivatives
     os.makedirs(args.output_derivative_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
         dataset_root=args.output_derivative_dir,
