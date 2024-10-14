@@ -111,7 +111,7 @@ def main():
                         validate=False)
     inputs = []
     subjects = layout.get_subjects()
-    # subjects = ["phy001"]
+    subjects = ["phy003"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -120,8 +120,6 @@ def main():
 
                 if len(runs) == 0:
                     runs = [None]
-
-                # runs = [1]
 
                 for run in runs:
                     t1w_files = layout.get(subject=subject,
@@ -177,7 +175,7 @@ def main():
                      b1_map_json_dict) = find_image_and_json(
                         layout, subject=subject,
                         session=session,
-                        suffix="B1map",
+                        suffix="B1Map",
                         acquisition="B1",
                         extension="nii.gz",
                         run=run)
@@ -188,7 +186,7 @@ def main():
                         session=session,
                         suffix="magnitude",
                         extension="nii.gz",
-                        acquisition="B1ref",
+                        acquisition="B1Ref",
                         run=run)
 
                     inputs.append(dict(subject=subject,

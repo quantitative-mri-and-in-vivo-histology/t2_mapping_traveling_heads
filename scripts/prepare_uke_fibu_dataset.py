@@ -188,7 +188,7 @@ def main():
                          b1_map_json_dict) = find_image_and_json(
                             layout, subject=subject,
                             session=session,
-                            suffix="B1map",
+                            suffix="B1Map",
                             extension="nii.gz",
                             run=run)
 
@@ -196,7 +196,8 @@ def main():
                          b1_anat_json_dict) = find_image_and_json(
                             layout, subject=subject,
                             session=session,
-                            suffix="B1ref",
+                            acquisition="B1Ref",
+                            suffix="magnitude",
                             extension="nii.gz",
                             run=run)
 
@@ -295,7 +296,7 @@ def main():
     b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
     b1_map_file_writer.inputs.pattern = out_pattern
     b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-                                                      suffix="B1map")
+                                                      suffix="B1Map")
     wf.connect(normalize_b1, "out_file",
                b1_map_file_writer, "in_file")
     wf.connect(input_node, "b1_siemens_json_dict",
@@ -307,7 +308,7 @@ def main():
                                       name="b1_anat_ref_file_writer")
     b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
     b1_anat_ref_file_writer.inputs.pattern = out_pattern
-    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
+    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
                                                            suffix="magnitude")
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
