@@ -165,7 +165,7 @@ def main():
                             run=run)
 
                         (b1_anat_ref_file,
-                         b1_anat_json_dict) = find_image_and_json(
+                         b1_anat_ref_json_dict) = find_image_and_json(
                             layout, subject=subject,
                             session=session,
                             acquisition="B1Ref",
@@ -284,7 +284,7 @@ def main():
                                                            suffix="magnitude")
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
-    wf.connect(input_node, "b1_anat_json_dict",
+    wf.connect(input_node, "b1_anat_ref_json_dict",
                b1_anat_ref_file_writer, "json_dict")
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "template_file")

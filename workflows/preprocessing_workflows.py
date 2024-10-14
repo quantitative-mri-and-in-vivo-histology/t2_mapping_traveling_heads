@@ -1,5 +1,4 @@
 import os
-import templateflow
 from nipype.interfaces.utility import IdentityInterface
 import nipype.interfaces.utility as util
 import nipype.pipeline.engine as pe
@@ -7,7 +6,7 @@ import nipype.interfaces.mrtrix3 as mrtrix3
 from nipype import Node, Function
 import nipype.interfaces.fsl as fsl
 import nipype.interfaces.ants as ants
-from utils.processing import QiTgv, QiJsr
+from utils.processing import QiTgv, subtract_background_phase
 from nipype_utils import ApplyXfm4D, get_common_parent_directory
 
 
@@ -370,119 +369,6 @@ def preprocess_ssfp(base_dir=os.getcwd(), name="preprocess_ssfp"):
     return wf
 
 
-# def preprocess_ssfp_multi_file_flirt(base_dir=os.getcwd(),
-#                                name="preprocess_ssfp_multi_file"):
-#     wf = pe.Workflow(name=name)
-#     wf.base_dir = base_dir
-#
-#     input_node = pe.Node(
-#         IdentityInterface(fields=[
-#             "b1_map_file",
-#             "b1_anat_ref_file",
-#             "t1w_files",
-#             "t2w_files",
-#             "reg_target_file"
-#         ]),
-#         name="input_node"
-#     )
-#
-#     output_node = pe.Node(
-#         IdentityInterface(fields=[
-#             "b1_map_file",
-#             "b1_anat_ref_file",
-#             "t1w_files",
-#             "t2w_files",
-#             "reg_target_file",
-#             "brain_mask_file"
-#         ]),
-#         name="output_node"
-#     )
-#
-#     tgv_alpha = 1e-5
-#     denoise_t1w = pe.MapNode(QiTgv(alpha=tgv_alpha),
-#                              name="denoise_t1w", iterfield=["in_file"])
-#     wf.connect(input_node, "t1w_files", denoise_t1w, "in_file")
-#
-#     denoise_t2w = pe.MapNode(QiTgv(alpha=tgv_alpha),
-#                              name="denoise_t2w", iterfield=["in_file"])
-#     wf.connect(input_node, "t2w_files", denoise_t2w, "in_file")
-#
-#     denoise_reg_target = pe.Node(QiTgv(alpha=tgv_alpha),
-#                              name="denoise_reg_target", iterfield=["in_file"])
-#     wf.connect(input_node, "reg_target_file", denoise_reg_target, "in_file")
-#
-#
-#     flirt_settings = dict(uses_qform=True, dof=6)
-#
-#     # t1w registration
-#     flirt_estimate_t1w = pe.MapNode(fsl.FLIRT(**flirt_settings),
-#                                     name="flirt_estimate_t1w",
-#                                     iterfield=["in_file"])
-#     wf.connect(denoise_t1w, "out_file", flirt_estimate_t1w, "in_file")
-#     wf.connect(input_node, "reg_target_file", flirt_estimate_t1w, "reference")
-#     flirt_apply_t1w = pe.MapNode(
-#         fsl.FLIRT(apply_xfm=True, **flirt_settings),
-#         name="flirt_apply_t1w", iterfield=["in_file", "in_matrix_file"])
-#     wf.connect(denoise_t1w, "out_file", flirt_apply_t1w, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_apply_t1w, "reference")
-#     wf.connect(flirt_estimate_t1w, "out_matrix_file", flirt_apply_t1w,
-#                "in_matrix_file")
-#
-#     # t2w registration
-#     flirt_estimate_t2w = pe.MapNode(fsl.FLIRT(**flirt_settings),
-#                                     name="flirt_estimate_t2w",
-#                                     iterfield=["in_file"])
-#     wf.connect(denoise_t2w, "out_file", flirt_estimate_t2w, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_estimate_t2w, "reference")
-#
-#     flirt_apply_t2w = pe.MapNode(
-#         fsl.FLIRT(apply_xfm=True, **flirt_settings),
-#         name="flirt_apply_t2w", iterfield=["in_file", "in_matrix_file"])
-#     wf.connect(denoise_t2w, "out_file", flirt_apply_t2w, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_apply_t2w, "reference")
-#     wf.connect(flirt_estimate_t2w, "out_matrix_file", flirt_apply_t2w,
-#                "in_matrix_file")
-#
-#     # b1 map registration
-#     flirt_estimate_b1 = pe.Node(fsl.FLIRT(**flirt_settings),
-#                                     name="flirt_estimate_b1")
-#     wf.connect(input_node, "b1_anat_ref_file", flirt_estimate_b1, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_estimate_b1, "reference")
-#
-#     flirt_apply_b1_map = pe.Node(
-#         fsl.FLIRT(apply_xfm=True, **flirt_settings),
-#         name="flirt_apply_b1_map")
-#     wf.connect(input_node, "b1_map_file", flirt_apply_b1_map, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_apply_b1_map, "reference")
-#     wf.connect(flirt_estimate_b1, "out_matrix_file", flirt_apply_b1_map,
-#                "in_matrix_file")
-#
-#     flirt_apply_b1_anat_ref = pe.Node(
-#         fsl.FLIRT(apply_xfm=True, **flirt_settings),
-#         name="flirt_apply_b1_anat_ref")
-#     wf.connect(input_node, "b1_anat_ref_file", flirt_apply_b1_anat_ref, "in_file")
-#     wf.connect(denoise_reg_target, "out_file", flirt_apply_b1_anat_ref, "reference")
-#     wf.connect(flirt_estimate_b1, "out_matrix_file", flirt_apply_b1_anat_ref,
-#                "in_matrix_file")
-#
-#     bet_node = Node(fsl.BET(), name="bet")
-#     bet_node.inputs.robust = True
-#     bet_node.inputs.mask = True
-#     # bet_node.inputs.frac = 0.5
-#
-#     wf.connect(input_node, "reg_target_file",
-#                      bet_node, "in_file")
-#
-#     wf.connect(flirt_apply_b1_map, "out_file", output_node, "b1_map_file")
-#     wf.connect(flirt_apply_b1_anat_ref, "out_file", output_node, "b1_anat_ref_file")
-#     wf.connect(denoise_reg_target, "out_file", output_node, "reg_target_file")
-#     wf.connect(flirt_apply_t1w, "out_file", output_node, "t1w_files")
-#     wf.connect(flirt_apply_t2w, "out_file", output_node, "t2w_files")
-#     wf.connect(bet_node, "mask_file", output_node, "brain_mask_file")
-#
-#     return wf
-
-
 def preprocess_ssfp_multi_file(base_dir=os.getcwd(),
                                name="preprocess_ssfp_multi_file"):
     wf = pe.Workflow(name=name)
@@ -594,5 +480,75 @@ def preprocess_ssfp_multi_file(base_dir=os.getcwd(),
     wf.connect(register_t1w, "warped_image", output_node, "t1w_files")
     wf.connect(register_t2w, "warped_image", output_node, "t2w_files")
     wf.connect(extract_brain, "BrainExtractionMask", output_node, "brain_mask_file")
+
+    return wf
+
+
+def preprocess_3depi_workflow(base_dir=os.getcwd(),
+                                              name="preprocess_3depi_workflow"):
+
+    wf = pe.Workflow(name=name)
+    wf.base_dir = base_dir
+
+    input_node = pe.Node(IdentityInterface(fields=[
+        "phase_file",
+        "magnitude_file",
+        "b1_map_file",
+    ]), name="input_node")
+
+    output_node = pe.Node(IdentityInterface(fields=[
+        "phase_file",
+        "magnitude_file",
+        "b1_map_file",
+        "brain_mask_file"
+    ]), name="output_node")
+
+    # denoise in T2w images
+    denoise_wf = denoise_mag_and_phase_in_complex_domain_workflow()
+    wf.connect(input_node, "phase_file",
+               denoise_wf, "input_node.phase_file")
+    wf.connect(input_node, "magnitude_file",
+               denoise_wf, "input_node.magnitude_file")
+
+    # correct motion in T2w images
+    motion_correction_wf = motion_correction_mag_and_phase_workflow()
+    wf.connect(denoise_wf, "output_node.magnitude_file",
+               motion_correction_wf, "input_node.magnitude_file")
+    wf.connect(denoise_wf, "output_node.phase_file",
+               motion_correction_wf, "input_node.phase_file")
+
+    # subtract background phase in T2w images
+    subtract_background_phase_node = Node(Function(
+        input_names=['magnitude_file', 'phase_file'],
+        output_names=['magnitude_file', 'phase_file'],
+        function=subtract_background_phase),
+        name='subtract_background_phase')
+    wf.connect(motion_correction_wf, "output_node.magnitude_file",
+               subtract_background_phase_node, "magnitude_file")
+    wf.connect(motion_correction_wf, "output_node.phase_file",
+               subtract_background_phase_node, "phase_file")
+
+    # create brain mask for T2w images
+    create_brain_mask_wf = create_brain_mask_workflow()
+    wf.connect(subtract_background_phase_node, "magnitude_file",
+               create_brain_mask_wf, "input_node.in_file")
+
+    # register B1 map to T2w magnitude image
+    register_b1_map_to_t2w_wf = register_image_workflow()
+    wf.connect(input_node, "b1_map_file",
+               register_b1_map_to_t2w_wf, "input_node.moving_file")
+    wf.connect(input_node, "b1_anat_ref_file",
+               register_b1_map_to_t2w_wf, "input_node.reference_file")
+    wf.connect(subtract_background_phase_node, "magnitude_file",
+               register_b1_map_to_t2w_wf, "input_node.target_file")
+
+    wf.connect(subtract_background_phase_node, "magnitude_out_file",
+               output_node, "magnitude_file")
+    wf.connect(subtract_background_phase_node, "phase_out_file",
+               output_node, "phase_file")
+    wf.connect(create_brain_mask_wf, "ouput_node.brain_mask_file",
+               output_node, "brain_mask_file")
+    wf.connect(register_b1_map_to_t2w_wf, "output_node.out_file",
+               output_node, "b1_map_file")
 
     return wf

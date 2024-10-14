@@ -411,7 +411,8 @@ def main():
                     runs = [None]
                 for run in runs:
                     t2w_phase_file = layout.get(subject=subject,
-                                                session=session, suffix="T2w",
+                                                session=session,
+                                                suffix="T2w",
                                                 extension="nii.gz",
                                                 part="phase", run=run)
 

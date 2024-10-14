@@ -1,15 +1,264 @@
 import argparse
 import json
+import math
 import os
 import multiprocessing
 from nipype import Workflow
-from nipype.interfaces.utility import IdentityInterface
+from nipype.interfaces.utility import IdentityInterface, Function
 import nipype.pipeline.engine as pe
 from nipype import Node
 from bids.layout import BIDSLayout
 import nipype.interfaces.fsl as fsl
+from workflows.fieldmap_workflows import correct_b1_with_b0
 from nipype_utils import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
+
+
+def create_brain_mask_from_anatomical_b1(in_file, threshold=200, fwhm=8):
+    """
+    Shift a specified number of voxels along a given dimension and merge them to the other side.
+
+    Parameters:
+    in_file (str): Path to the input NIfTI file.
+    n_voxels (int): Number of voxels to shift.
+    axis (int): Dimension along which to shift (0 for x, 1 for y, 2 for z).
+    out_file (str): Path for the output NIfTI file.
+
+    Returns:
+    out_file (str): Path to the modified NIfTI file.
+    """
+    import os
+    import nibabel as nib
+    import numpy as np
+    from scipy.ndimage import gaussian_filter
+
+    base_dir = os.getcwd()
+
+    # Load the NIfTI file
+    image_nib = nib.load(in_file)
+    image = image_nib.get_fdata()
+
+    sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+    smoothed_data = gaussian_filter(image, sigma=sigma)
+    brain_mask = smoothed_data > threshold
+
+    brain_mask_nib = nib.Nifti1Image(brain_mask, image_nib.affine,
+                                     image_nib.header)
+    out_file = os.path.join(base_dir, 'brain_mask.nii.gz')
+    nib.save(brain_mask_nib, out_file)
+
+    return out_file
+
+
+def cut_and_merge_image(in_file, n_voxels, axis):
+    """
+    Shift a specified number of voxels along a given dimension and merge them to the other side.
+
+    Parameters:
+    in_file (str): Path to the input NIfTI file.
+    n_voxels (int): Number of voxels to shift.
+    axis (int): Dimension along which to shift (0 for x, 1 for y, 2 for z).
+    out_file (str): Path for the output NIfTI file.
+
+    Returns:
+    out_file (str): Path to the modified NIfTI file.
+    """
+    import os
+    import nibabel as nib
+    import numpy as np
+
+    base_dir = os.getcwd()
+
+    # Load the NIfTI file
+    image_nib = nib.load(in_file)
+    image = image_nib.get_fdata()
+    affine = image_nib.affine
+
+    # Create the mask to identify the touched region
+    untouched_mask = np.zeros(image.shape, dtype=bool)
+    slicer = [slice(None)] * len(image.shape)
+    slicer[axis] = slice(-(n_voxels - 1), None)
+    untouched_mask[tuple(slicer)] = True
+
+    voxel_shift = np.zeros(4)
+    voxel_shift[axis] = n_voxels * affine[axis, axis]
+    adjusted_affine = affine.copy()
+    adjusted_affine[:3, 3] -= voxel_shift[:3]
+    shift_amount = image.shape[axis] - n_voxels
+    voxel_size = affine[
+        axis, axis]  # Get the voxel size along the specified axis (diagonal element)
+    shift_in_mm = shift_amount * voxel_size
+    adjusted_affine = affine.copy()
+    adjusted_affine[
+        axis, 3] -= shift_in_mm  # Adjust the translation component of the affine matrix
+
+    # Perform the shift
+    image_shifted = np.roll(image, shift=-n_voxels, axis=axis)
+
+    # save image
+    image_shifted_nib = nib.Nifti1Image(image_shifted, adjusted_affine,
+                                        image_nib.header)
+    out_file = os.path.join(base_dir, 'image_shifted.nii.gz')
+    nib.save(image_shifted_nib, out_file)
+
+    # save untouched mask
+    untouched_mask_nib = nib.Nifti1Image(untouched_mask, adjusted_affine,
+                                         image_nib.header)
+    untouched_mask_file = os.path.join(base_dir, 'image_untouched_mask.nii.gz')
+    nib.save(untouched_mask_nib, untouched_mask_file)
+
+    return out_file, untouched_mask_file
+
+
+def inpaint(in_file, brain_mask_file, tissue_threshold=0, fwhm=2,
+            iterations=10):
+    """
+    Shift a specified number of voxels along a given dimension and merge them to the other side.
+
+    Parameters:
+    in_file (str): Path to the input NIfTI file.
+    n_voxels (int): Number of voxels to shift.
+    axis (int): Dimension along which to shift (0 for x, 1 for y, 2 for z).
+    out_file (str): Path for the output NIfTI file.
+
+    Returns:
+    out_file (str): Path to the modified NIfTI file.
+    """
+    import os
+    import nibabel as nib
+    import numpy as np
+    from scipy.ndimage import gaussian_filter
+
+    base_dir = os.getcwd()
+
+    # Load the NIfTI file
+    image_nib = nib.load(in_file)
+    image = image_nib.get_fdata()
+
+    brain_mask_nib = nib.load(brain_mask_file)
+    brain_mask = brain_mask_nib.get_fdata().astype(np.bool)
+
+    value_mask = image > tissue_threshold
+    smoothing_mask = np.logical_and(brain_mask, value_mask)
+
+    sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+
+    # Create a copy of the data with zeros where inpainting is needed
+    inpainted_data = np.copy(image)
+    inpainted_data[~smoothing_mask] = 0
+    # Number of iterations for diffusion-based inpainting
+
+    # Iteratively smooth and update the masked regions
+    for _ in range(iterations):
+        # Smooth the entire data
+        smoothed_data = gaussian_filter(inpainted_data, sigma=sigma)
+
+        # Update only the masked regions with the smoothed values
+        inpainted_data[~smoothing_mask] = smoothed_data[~smoothing_mask]
+    #
+    #
+    # smoothing_area = np.logical_and(brain_mask, ~smoothing_mask)
+    final_image = np.copy(inpainted_data)
+    final_image[~smoothing_mask] = inpainted_data[~smoothing_mask]
+    final_image[~brain_mask] = image[~brain_mask]
+    # Save the modified data to a new NIfTI image
+
+    image_smoothed_nib = nib.Nifti1Image(final_image, image_nib.affine,
+                                         image_nib.header)
+    out_file = os.path.join(base_dir, 'image_smoothed.nii.gz')
+    nib.save(image_smoothed_nib, out_file)
+
+    return out_file
+
+
+def correct_phase_wrap_around_workflow(base_dir=os.getcwd(),
+                                       name="correct_phase_wrap_around"):
+    wf = pe.Workflow(name=name)
+    wf.base_dir = base_dir
+
+    input_node = Node(
+        IdentityInterface(
+            fields=['b1_anat_ref_file',
+                    'b1_map_file',
+                    'axis',
+                    'n_voxels']),
+        name='input_node'
+    )
+    output_node = pe.Node(pe.utils.IdentityInterface(
+        fields=['b1_anat_ref_file',
+                'b1_map_file',
+                'brain_mask_file',
+                'untouched_mask_file']),
+        name='output_node')
+
+    cut_and_merge_b1_map = Node(Function(
+        input_names=['in_file', 'n_voxels', 'axis'],
+        output_names=['out_file', 'untouched_mask_file'],
+        function=cut_and_merge_image),
+        name='cut_and_merge_b1_map')
+    wf.connect(input_node, "b1_map_file",
+               cut_and_merge_b1_map, "in_file")
+    wf.connect(input_node, "axis",
+               cut_and_merge_b1_map, "axis")
+    wf.connect(input_node, "n_voxels",
+               cut_and_merge_b1_map, "n_voxels")
+
+    cut_and_merge_b1_anat_ref = Node(Function(
+        input_names=['in_file', 'n_voxels', 'axis'],
+        output_names=['out_file', 'untouched_mask_file'],
+        function=cut_and_merge_image),
+        name='cut_and_merge_b1_anat_ref')
+    wf.connect(input_node, "b1_anat_ref_file",
+               cut_and_merge_b1_anat_ref, "in_file")
+    wf.connect(input_node, "axis",
+               cut_and_merge_b1_anat_ref, "axis")
+    wf.connect(input_node, "n_voxels",
+               cut_and_merge_b1_anat_ref, "n_voxels")
+
+    create_brain_mask_node = Node(Function(
+        input_names=['in_file', 'fwhm'],
+        output_names=['out_file'],
+        function=create_brain_mask_from_anatomical_b1),
+        name='create_brain_mask')
+    create_brain_mask_node.inputs.fwhm = 8
+    wf.connect(cut_and_merge_b1_anat_ref, "out_file",
+               create_brain_mask_node, "in_file")
+
+    inpaint_b1_map = Node(Function(
+        input_names=['in_file', 'brain_mask_file', 'fwhm', 'iterations'],
+        output_names=['out_file'],
+        function=inpaint),
+        name='impaint_b1_map')
+    inpaint_b1_map.inputs.fwhm = 2
+    inpaint_b1_map.inputs.iterations = 15
+    wf.connect(cut_and_merge_b1_map, "out_file",
+               inpaint_b1_map, "in_file")
+    wf.connect(create_brain_mask_node, "out_file",
+               inpaint_b1_map, "brain_mask_file")
+
+    inpaint_b1_anat_ref = Node(Function(
+        input_names=['in_file', 'brain_mask_file', 'fwhm', 'iterations'],
+        output_names=['out_file'],
+        function=inpaint),
+        name='impaint_b1_anat_ref')
+    inpaint_b1_anat_ref.inputs.fwhm = 2
+    inpaint_b1_anat_ref.inputs.iterations = 10
+    wf.connect(cut_and_merge_b1_anat_ref, "out_file",
+               inpaint_b1_anat_ref, "in_file")
+    wf.connect(create_brain_mask_node, "out_file",
+               inpaint_b1_anat_ref, "brain_mask_file")
+
+    # set outputs
+    wf.connect(cut_and_merge_b1_map, "untouched_mask_file",
+               output_node, "untouched_mask_file")
+    wf.connect(create_brain_mask_node, "out_file",
+               output_node, "brain_mask_file")
+    wf.connect(inpaint_b1_map, "out_file",
+               output_node, "b1_map_file")
+    wf.connect(inpaint_b1_anat_ref, "out_file",
+               output_node, "b1_anat_ref_file")
+
+    return wf
 
 
 def main():
@@ -59,9 +308,8 @@ def main():
 
                 test_image_entities = dict(subject=subject,
                                            session=session,
-                                           acquisition="t2Ssfp3A12RF180",
+                                           suffix="T2w",
                                            part="mag",
-                                           suffix='T2w',
                                            extension="nii.gz")
 
                 test_images = layout.get(**test_image_entities)
@@ -76,203 +324,240 @@ def main():
                 if len(runs) == 0:
                     runs = [None]
                 for run in runs:
+                    input_dict = dict()
 
-                    try:
-                        (t1w_a2_file, t1w_a2_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            suffix="T1w",
-                            acquisition="t2Ssfp3A2",
-                            part="mag",
-                            extension="nii.gz",
-                            run=run)
+                    (input_dict["t1w_file"],
+                     input_dict["t1w_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dznebnt1wmprage1isoComb",
+                        suffix="T1w",
+                        extension="nii.gz")
 
-                        t1w_a13_files = layout.get(subject=subject,
-                                                   session=session,
-                                                   suffix="T1w",
-                                                   acquisition="t2Ssfp3A13",
-                                                   part="mag",
-                                                   extension="nii.gz",
-                                                   run=run)
+                    (input_dict["t2w_mag_file"],
+                     input_dict["t2w_mag_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        suffix="T2w",
+                        part="mag",
+                        extension="nii.gz")
 
-                        t1w_a12_files = layout.get(subject=subject,
-                                                   session=session,
-                                                   suffix="T1w",
-                                                   acquisition="t2Ssfp3A12",
-                                                   part="mag",
-                                                   extension="nii.gz",
-                                                   run=run)
+                    (input_dict["t2w_phase_file"],
+                     input_dict["t2w_phase_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        suffix="T2w",
+                        part="phase",
+                        extension="nii.gz")
 
-                        if len(t1w_a13_files) == 0 and len(t1w_a12_files) == 1:
-                            (t1w_a13_file,
-                             t1w_a13_json_dict) = find_image_and_json(
-                                layout, subject=subject,
-                                session=session,
-                                suffix="T1w",
-                                acquisition="t2Ssfp3A12",
-                                part="mag",
-                                extension="nii.gz",
-                                run=run)
-                        else:
-                            (t1w_a13_file,
-                             t1w_a13_json_dict) = find_image_and_json(
-                                layout, subject=subject,
-                                session=session,
-                                suffix="T1w",
-                                acquisition="t2Ssfp3A13",
-                                part="mag",
-                                extension="nii.gz",
-                                run=run)
+                    (input_dict["b1_map_file"],
+                     input_dict["b1_map_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        suffix="TB1map",
+                        extension="nii.gz")
 
+                    (input_dict["b1_ste_file"],
+                     input_dict["b1_ste_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dznebnB1",
+                        suffix="magnitude1",
+                        extension="nii.gz")
 
-                        (t2w_a12rf180_file,
-                         t2w_a12rf180_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            suffix="T2w",
-                            acquisition="t2Ssfp3A12RF180",
-                            part="mag",
-                            extension="nii.gz",
-                            run=run)
+                    (input_dict["b1_fid_file"],
+                     input_dict["b1_fid_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dznebnB1",
+                        suffix="magnitude2",
+                        extension="nii.gz")
 
-                        (t2w_a49rf0_file,
-                         t2w_a49rf0_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            suffix="T2w",
-                            acquisition="t2Ssfp3A49RF0",
-                            part="mag",
-                            extension="nii.gz",
-                            run=run)
+                    b0_run_id = 1 if run is None else (run - 1) * 2 + 1
+                    (input_dict["b0_mag1_file"],
+                     input_dict["b0_mag1_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=b0_run_id,
+                        acquisition="dznebnB0",
+                        suffix="magnitude1",
+                        extension="nii.gz")
 
-                        (t2w_a49rf180_file,
-                         t2w_a49rf180_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            suffix="T2w",
-                            acquisition="t2Ssfp3A49RF180",
-                            part="mag",
-                            extension="nii.gz",
-                            run=run)
+                    input_dict["b0_mag1_entity_overrides"] = dict(
+                        run=run, acquisition="B0Ref",
+                        suffix="magnitude")
 
-                        (b1_map_file,
-                         b1_map_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            suffix="B1Map",
-                            extension="nii.gz",
-                            run=run)
+                    (input_dict["b0_phasediff_file"],
+                     input_dict[
+                         "b0_phasediff_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=b0_run_id,
+                        acquisition="dznebnB0",
+                        suffix="phase2",
+                        extension="nii.gz")
 
-                        (b1_anat_ref_file,
-                         b1_anat_json_dict) = find_image_and_json(
-                            layout, subject=subject,
-                            session=session,
-                            acquisition="B1Ref",
-                            suffix="magnitude",
-                            extension="nii.gz",
-                            run=run)
+                    input_dict["b0_phasediff_entity_overrides"] = dict(
+                        run=run, acquisition="B0Ref",
+                        suffix="magnitude")
 
-                    except ValueError as e:
-                        # Print the error message
-                        print(f"A ValueError occurred: {e}")
-                        continue
+                    fa_b1_in_degrees = input_dict["b1_map_json_dict"][
+                        "FlipAngle"]
+                    input_dict["b1_normalization_factor"] = 1.0 / (
+                            fa_b1_in_degrees * 10)
+                    b0_te_delta = input_dict["b0_phasediff_json_dict"][
+                                      "EchoTime2"] - \
+                                  input_dict["b0_phasediff_json_dict"][
+                                      "EchoTime1"]
+                    input_dict["b0_phase_unwrap_factor"] = 1.0 / (
+                            4096 * b0_te_delta * 2)
 
-                    t1w_files = [t1w_a2_file, t1w_a13_file]
-                    t1w_json_dicts = [t1w_a2_json_dict, t1w_a13_json_dict]
+                    input_dict["axis_wrap_around"] = 1
+                    input_dict["n_voxels_wrap_around"] = 47
 
-                    for t1w_json_dict in t1w_json_dicts:
-                        t1w_json_dict["RepetitionTimeExcitation"] = 0.0062
+                    input_dict["fa_b1_in_degrees"] = \
+                        input_dict["b1_map_json_dict"]["FlipAngle"]
+                    input_dict["fa_nominal_in_degrees"] = input_dict[
+                        "t2w_mag_json_dict"]["FlipAngle"]
+                    input_dict["rf_pulse_duration"] = 2.46e-3
 
-                    t2w_files = [t2w_a12rf180_file, t2w_a49rf0_file,
-                                 t2w_a49rf180_file]
+                    # add RF pulse duration and phase increments to T2w metadata
+                    input_dict[
+                        "t2w_mag_json_dict"]["RfPulseDuration"] = input_dict[
+                        "rf_pulse_duration"]
+                    input_dict[
+                        "t2w_phase_json_dict"]["RfPulseDuration"] = input_dict[
+                        "rf_pulse_duration"]
+                    input_dict[
+                        "t2w_mag_json_dict"]["RfPhaseIncrement"] = [
+                        0, 3, 1, 4, 2, 5]
+                    input_dict[
+                        "t2w_phase_json_dict"]["RfPhaseIncrement"] = \
+                        [0, 3, 1, 4, 2, 5]
 
-                    t2w_a12rf180_json_dict["RfPhaseIncrement"] = 180
-                    t2w_a49rf0_json_dict["RfPhaseIncrement"] = 0
-                    t2w_a49rf180_json_dict["RfPhaseIncrement"] = 180
-
-                    t2w_json_dicts = [t2w_a12rf180_json_dict,
-                                      t2w_a49rf0_json_dict,
-                                      t2w_a49rf180_json_dict]
-
-                    for t2w_json_dict in t2w_json_dicts:
-                        t2w_json_dict["RepetitionTimeExcitation"] = 0.006
-                        t2w_json_dict["RfPulseDuration"] = 0.0003
-
-                    b1_normalization_factor = 1.0 / 100
-
-                    inputs.append(dict(subject=subject,
-                                       session=session,
-                                       run=run,
-                                       t1w_files=t1w_files,
-                                       t1w_json_dicts=t1w_json_dicts,
-                                       t2w_files=t2w_files,
-                                       t2w_json_dicts=t2w_json_dicts,
-                                       b1_siemens_map_file=b1_map_file,
-                                       b1_siemens_json_dict=b1_map_json_dict,
-                                       b1_anat_ref_file=b1_anat_ref_file,
-                                       b1_anat_json_dict=b1_anat_json_dict,
-                                       b1_normalization_factor=b1_normalization_factor))
+                    inputs.append(input_dict)
 
     print(inputs)
 
     # set up bids input node
-    input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
-                      name='input_node')
+    input_node = Node(
+        IdentityInterface(fields=list(inputs[0].keys())),
+        name='input_node')
     keys = inputs[0].keys()
     input_node.iterables = [
-        (key, [input_dict[key] for input_dict in inputs]) for key in keys]
+        (key, [input_dict[key] for input_dict in inputs]) for
+        key in keys]
     input_node.synchronize = True
 
-    wf = Workflow(name="prepare_kings_dataset")
+    wf = Workflow(name="prepare_dzne_dataset")
     wf.base_dir = args.base_dir
 
-    output_node = Node(IdentityInterface(fields=[
-        "t2w_files",
-        "t1w_files",
-        "b1_relative_map_file"
-    ]), name='output_node')
+    # scale phase to radian
+    scaling_factor = math.pi / 4096.0
+    scale_phase_from_siemens_to_radian = pe.Node(
+        fsl.ImageMaths(
+            op_string='-mul {}'.format(scaling_factor)),
+        name="scale_phase_from_siemens_to_rad")
+    wf.connect(input_node, "t2w_phase_file",
+               scale_phase_from_siemens_to_radian, "in_file")
 
-    # normalize B1 map
-    normalize_b1 = pe.Node(
-        fsl.BinaryMaths(operation='mul'),
-        name="normalize_b1")
-    wf.connect(input_node, "b1_siemens_map_file",
+    # normalize b0 (so that 1 indicates homogeneity)
+    normalize_b1 = pe.Node(fsl.BinaryMaths(operation="mul"),
+                           name="normalize_b1")
+    wf.connect(input_node, "b1_map_file",
                normalize_b1, "in_file")
     wf.connect(input_node, "b1_normalization_factor",
                normalize_b1, "operand_value")
 
-    # rescale T1w images
-    t1w_scaling_factor = 1.0
-    rescale_t1w = pe.MapNode(fsl.ImageMaths(
-        op_string='-mul {}'.format(t1w_scaling_factor)),
-        iterfield=['in_file'], name="rescale_t1w")
-    wf.connect(input_node, "t1w_files", rescale_t1w, "in_file")
+    # convert B0 map to radian
+    unwrap_phase_b0 = pe.Node(fsl.BinaryMaths(operation="mul"),
+                              name="unwrap_phase_b0")
+    wf.connect(input_node, "b0_phasediff_file",
+               unwrap_phase_b0, "in_file")
+    wf.connect(input_node, "b0_phase_unwrap_factor",
+               unwrap_phase_b0, "operand_value")
 
-    t2w_scaling_factor = 1.0
-    rescale_t2w = pe.MapNode(fsl.ImageMaths(
-        op_string='-mul {}'.format(t2w_scaling_factor)),
-        iterfield=['in_file'], name="rescale_t2w")
-    wf.connect(input_node, "t2w_files", rescale_t2w, "in_file")
+    # Compute B1 anatomical reference image as 2 * ste + fid
+    multiply_ste_by_two = pe.Node(
+        fsl.BinaryMaths(operation="mul",
+                        operand_value=2),
+        name="multiply_ste")
+    wf.connect(input_node, "b1_ste_file",
+               multiply_ste_by_two, "in_file")
+    add_fid = pe.Node(fsl.BinaryMaths(operation="add"),
+                      name="add_fid")
+    wf.connect(multiply_ste_by_two, "out_file", add_fid,
+               "in_file")
+    wf.connect(input_node, "b1_fid_file", add_fid,
+               "operand_file")
 
-    wf.connect(rescale_t1w, "out_file", output_node, "t1w_files")
-    wf.connect(rescale_t2w, "out_file", output_node, "t2w_files")
-    wf.connect(normalize_b1, "out_file", output_node, "b1_relative_map_file")
+    # correct phase wrap-around in B1 map and anatomical reference
+    correct_phase_wrap_around_wf = correct_phase_wrap_around_workflow()
+    wf.connect(add_fid, "out_file",
+               correct_phase_wrap_around_wf,
+               "input_node.b1_anat_ref_file")
+    wf.connect(normalize_b1, "out_file",
+               correct_phase_wrap_around_wf,
+               "input_node.b1_map_file")
+    wf.connect(input_node, "axis_wrap_around",
+               correct_phase_wrap_around_wf, "input_node.axis")
+    wf.connect(input_node, "n_voxels_wrap_around",
+               correct_phase_wrap_around_wf,
+               "input_node.n_voxels")
+
+    # b1 adjustment for T2w images
+    correct_b1_with_b0_wf = correct_b1_with_b0()
+    wf.connect(unwrap_phase_b0, "out_file",
+               correct_b1_with_b0_wf, "input_node.b0_map_file")
+    wf.connect(correct_phase_wrap_around_wf,
+               "output_node.b1_map_file",
+               correct_b1_with_b0_wf, "input_node.b1_map_file")
+    wf.connect(input_node, "b0_mag1_file",
+               correct_b1_with_b0_wf,
+               "input_node.b0_anat_ref_file")
+    wf.connect(correct_phase_wrap_around_wf,
+               "output_node.b1_anat_ref_file",
+               correct_b1_with_b0_wf,
+               "input_node.b1_anat_ref_file")
+    wf.connect(input_node, "fa_b1_in_degrees",
+               correct_b1_with_b0_wf,
+               "input_node.fa_b1_in_degrees")
+    wf.connect(input_node, "fa_nominal_in_degrees",
+               correct_b1_with_b0_wf,
+               "input_node.fa_nominal_in_degrees")
+    wf.connect(input_node, "rf_pulse_duration",
+               correct_b1_with_b0_wf,
+               "input_node.pulse_duration_in_seconds")
 
     out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
                   'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
                   '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
-                                 name="b1_map_file_formatter")
+                                 name="b1_map_file_writer")
     b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
     b1_map_file_writer.inputs.pattern = out_pattern
     b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
                                                       suffix="B1Map")
-    wf.connect(normalize_b1, "out_file",
+    wf.connect(correct_b1_with_b0_wf, "output_node.out_file",
                b1_map_file_writer, "in_file")
-    wf.connect(input_node, "b1_siemens_json_dict",
+    wf.connect(input_node, "b1_map_json_dict",
                b1_map_file_writer, "json_dict")
-    wf.connect(input_node, "b1_siemens_map_file",
+    wf.connect(input_node, "b1_map_file",
                b1_map_file_writer, "template_file")
 
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
@@ -281,12 +566,62 @@ def main():
     b1_anat_ref_file_writer.inputs.pattern = out_pattern
     b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
                                                            suffix="magnitude")
-    wf.connect(input_node, "b1_anat_ref_file",
+    wf.connect(add_fid, "out_file",
                b1_anat_ref_file_writer, "in_file")
-    wf.connect(input_node, "b1_anat_json_dict",
+    wf.connect(input_node, "b1_ste_json_dict",
                b1_anat_ref_file_writer, "json_dict")
-    wf.connect(input_node, "b1_anat_ref_file",
+    wf.connect(input_node, "b1_ste_file",
                b1_anat_ref_file_writer, "template_file")
+
+    b0_map_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="b0_map_file_writer")
+    b0_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b0_map_file_writer.inputs.pattern = out_pattern
+    wf.connect(unwrap_phase_b0, "out_file",
+               b0_map_file_writer, "in_file")
+    wf.connect(input_node, "b0_phasediff_json_dict",
+               b0_map_file_writer, "json_dict")
+    wf.connect(input_node, "b0_phasediff_file",
+               b0_map_file_writer, "template_file")
+    wf.connect(input_node, "b0_phasediff_entity_overrides",
+               b0_map_file_writer, "entity_overrides")
+
+    b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                      name="b0_anat_ref_file_writer")
+    b0_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+    b0_anat_ref_file_writer.inputs.pattern = out_pattern
+    wf.connect(input_node, "b0_mag1_file",
+               b0_anat_ref_file_writer, "in_file")
+    wf.connect(input_node, "b0_mag1_json_dict",
+               b0_anat_ref_file_writer, "json_dict")
+    wf.connect(input_node, "b0_mag1_file",
+               b0_anat_ref_file_writer, "template_file")
+    wf.connect(input_node, "b0_mag1_entity_overrides",
+               b0_anat_ref_file_writer, "entity_overrides")
+
+    t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
+                                  name="t2w_mag_file_writer")
+    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_mag_file_writer.inputs.pattern = out_pattern
+    t2w_mag_file_writer.inputs.entity_overrides = dict(desc=None)
+    wf.connect(input_node, "t2w_mag_file",
+               t2w_mag_file_writer, "in_file")
+    wf.connect(input_node, "t2w_mag_file",
+               t2w_mag_file_writer, "template_file")
+    wf.connect(input_node, "t2w_mag_json_dict",
+               t2w_mag_file_writer, "json_dict")
+
+    t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
+                                    name="t2w_phase_file_writer")
+    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_phase_file_writer.inputs.pattern = out_pattern
+    t2w_phase_file_writer.inputs.entity_overrides = dict(desc=None)
+    wf.connect(scale_phase_from_siemens_to_radian, "out_file",
+               t2w_phase_file_writer, "in_file")
+    wf.connect(input_node, "t2w_phase_file",
+               t2w_phase_file_writer, "template_file")
+    wf.connect(input_node, "t2w_phase_json_dict",
+               t2w_phase_file_writer, "json_dict")
 
     t1w_file_writer = pe.MapNode(BidsOutputWriter(),
                                  iterfield=['in_file', 'template_file',
@@ -295,28 +630,13 @@ def main():
     t1w_file_writer.inputs.output_dir = args.output_derivative_dir
     t1w_file_writer.inputs.pattern = out_pattern
     t1w_file_writer.inputs.entity_overrides = dict(part=None)
-    wf.connect(rescale_t1w, "out_file",
+    wf.connect(input_node, "t1w_file",
                t1w_file_writer, "in_file")
-    wf.connect(input_node, "t1w_files",
+    wf.connect(input_node, "t1w_file",
                t1w_file_writer, "template_file")
-    wf.connect(input_node, "t1w_json_dicts",
+    wf.connect(input_node, "t1w_json_dict",
                t1w_file_writer, "json_dict")
 
-    t2w_file_writer = pe.MapNode(BidsOutputWriter(),
-                                 iterfield=['in_file', 'template_file',
-                                            'json_dict'],
-                                 name="t2w_file_writer")
-    t2w_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_file_writer.inputs.pattern = out_pattern
-    t2w_file_writer.inputs.entity_overrides = dict(part=None)
-    wf.connect(rescale_t2w, "out_file",
-               t2w_file_writer, "in_file")
-    wf.connect(input_node, "t2w_files",
-               t2w_file_writer, "template_file")
-    wf.connect(input_node, "t2w_json_dicts",
-               t2w_file_writer, "json_dict")
-
-    # wf.run()
     wf.run(**run_settings)
 
 
