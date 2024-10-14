@@ -4,6 +4,30 @@ from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
 from nipype.utils.filemanip import fname_presuffix
 
 
+def compute_t2_t1_amplitude_maps(magnitude_file,
+                                  phase_file,
+                                  mask_file,
+                                  b1_map_file,
+                                  repetition_time,
+                                  flip_angle,
+                                  rf_phase_increments
+                                  ):
+    from T2T1AM import cal_T2T1AM
+    import os
+
+    base_dir = os.getcwd()
+    output_dir = base_dir
+
+    cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file,
+               repetition_time, flip_angle, rf_phase_increments, outputdir=output_dir)
+
+    t2_map_file = os.path.join(base_dir, "T2_.nii.gz")
+    t1_map_file = os.path.join(base_dir, "T1_.nii.gz")
+    am_map_file = os.path.join(base_dir, "Am_.nii.gz")
+
+    return t2_map_file, t1_map_file, am_map_file
+
+
 def subtract_background_phase(magnitude_file, phase_file):
     import nibabel as nib
     import numpy as np
@@ -20,9 +44,6 @@ def subtract_background_phase(magnitude_file, phase_file):
 
     phase_bg_sub = np.angle(hip) / 2.0
     mag_bg_sub = np.sqrt(np.abs(hip))
-
-    phase_bg_sub = phase_bg_sub[..., (0, 3, 1, 4, 2, 5)]
-    mag_bg_sub = mag_bg_sub[..., (0, 3, 1, 4, 2, 5)]
 
     phase_bg_sub_nii = nib.Nifti1Image(phase_bg_sub, phase_nib.affine,
                                        phase_nib.header)

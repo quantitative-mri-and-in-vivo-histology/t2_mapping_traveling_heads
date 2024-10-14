@@ -494,6 +494,7 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
         "phase_file",
         "magnitude_file",
         "b1_map_file",
+        "b1_anat_ref_file"
     ]), name="input_node")
 
     output_node = pe.Node(IdentityInterface(fields=[
@@ -542,11 +543,11 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
     wf.connect(subtract_background_phase_node, "magnitude_file",
                register_b1_map_to_t2w_wf, "input_node.target_file")
 
-    wf.connect(subtract_background_phase_node, "magnitude_out_file",
+    wf.connect(subtract_background_phase_node, "magnitude_file",
                output_node, "magnitude_file")
-    wf.connect(subtract_background_phase_node, "phase_out_file",
+    wf.connect(subtract_background_phase_node, "phase_file",
                output_node, "phase_file")
-    wf.connect(create_brain_mask_wf, "ouput_node.brain_mask_file",
+    wf.connect(create_brain_mask_wf, "output_node.out_file",
                output_node, "brain_mask_file")
     wf.connect(register_b1_map_to_t2w_wf, "output_node.out_file",
                output_node, "b1_map_file")

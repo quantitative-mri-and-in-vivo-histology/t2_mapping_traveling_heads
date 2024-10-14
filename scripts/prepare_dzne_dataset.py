@@ -323,6 +323,7 @@ def main():
 
                 if len(runs) == 0:
                     runs = [None]
+
                 for run in runs:
                     input_dict = dict()
 

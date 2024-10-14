@@ -5,12 +5,13 @@ import nipype.interfaces.mrtrix3 as mrtrix3
 from nipype import Node, Function
 import nipype.interfaces.fsl as fsl
 import os
-from utils.processing import QiTgv, QiJsr
+from utils.processing import QiTgv, QiJsr, compute_t2_t1_amplitude_maps
 from nipype_utils import ApplyXfm4D, get_common_parent_directory
 from nipype.interfaces.utility import Merge
 from workflows.preprocessing_workflows import create_brain_mask_workflow
 from pathlib import Path
 from utils.io import write_json
+
 
 
 def estimate_relaxation_ssfp_multi_file(base_dir=os.getcwd(),
@@ -201,5 +202,105 @@ def estimate_relaxation_ssfp(base_dir=os.getcwd(),
     wf.connect(compute_r2, "out_file", output_node, "r2_map_file")
     wf.connect(qi_jsr, "t1_map_file", output_node, "t1_map_file")
     wf.connect(qi_jsr, "t2_map_file", output_node, "t2_map_file")
+
+    return wf
+
+
+def estimate_relaxation_3d_epi(base_dir=os.getcwd(),
+                             name="estimate_relaxation_3d_epi"):
+    wf = pe.Workflow(name=name)
+    wf.base_dir = base_dir
+
+    input_node = pe.Node(
+        IdentityInterface(fields=[
+            "t2w_magnitude_file",
+            "t2w_phase_file",
+            "brain_mask_file",
+            "b1_map_file",
+            "rf_phase_increments",
+            "flip_angle",
+            "repetition_time"
+        ]),
+        name="input_node"
+    )
+
+    output_node = pe.Node(
+        IdentityInterface(fields=[
+            "r1_map_file",
+            "r2_map_file",
+            "t1_map_file",
+            "t2_map_file",
+            "am_map_file"
+        ]),
+        name="output_node"
+    )
+
+    # scale B1 map to percent
+    scale_b1_to_percent = pe.Node(
+        fsl.ImageMaths(op_string='-mul 100.0'),
+        name="scale_b1_to_percent")
+    wf.connect(input_node, "b1_map_file",
+               scale_b1_to_percent, "in_file")
+
+    # compute T1, T2, AM
+    compute_t2_t1_am_node = Node(
+        Function(input_names=["magnitude_file", "phase_file", "mask_file",
+                              "b1_map_file", "repetition_time",
+                              "flip_angle",
+                              "rf_phase_increments"],
+                 output_names=["t2_map_file", "t1_map_file", "am_map_file"],
+                 function=compute_t2_t1_amplitude_maps),
+        name="compute_t2_t1_am")
+    wf.connect(input_node, "brain_mask_file",
+               compute_t2_t1_am_node, "mask_file")
+    wf.connect(input_node, "t2w_magnitude_file",
+               compute_t2_t1_am_node, "magnitude_file")
+    wf.connect(input_node, "t2w_phase_file",
+               compute_t2_t1_am_node, "phase_file")
+    wf.connect(input_node, "rf_phase_increments",
+               compute_t2_t1_am_node, "rf_phase_increments")
+    wf.connect(scale_b1_to_percent, "out_file",
+               compute_t2_t1_am_node, "b1_map_file")
+    wf.connect(input_node, "flip_angle",
+               compute_t2_t1_am_node, "flip_angle")
+    wf.connect(input_node, "repetition_time",
+               compute_t2_t1_am_node, "repetition_time")
+
+    # scale t1 to seconds
+    msec_to_sec_factor = 1.0 / 1000
+    scale_msec_to_sec_t1 = pe.Node(
+        fsl.ImageMaths(
+            op_string='-mul {}'.format(msec_to_sec_factor)),
+        name="scale_msec_to_sec_t1")
+    wf.connect(compute_t2_t1_am_node, "t1_map_file",
+               scale_msec_to_sec_t1, "in_file")
+
+    # scale t2 to seconds
+    scale_msec_to_sec_t2 = pe.Node(
+        fsl.ImageMaths(
+            op_string='-mul {}'.format(msec_to_sec_factor)),
+        name="scale_msec_to_sec_t2")
+    wf.connect(compute_t2_t1_am_node, "t2_map_file",
+               scale_msec_to_sec_t2, "in_file")
+
+    # compute R1 map
+    compute_r1 = pe.Node(
+        fsl.ImageMaths(op_string='-recip'),
+        name="compute_r1")
+    wf.connect(scale_msec_to_sec_t1, "out_file",
+               compute_r1, "in_file")
+
+    # compute R2 map
+    compute_r2 = pe.Node(
+        fsl.ImageMaths(op_string='-recip'),
+        name="compute_r2")
+    wf.connect(scale_msec_to_sec_t2, "out_file",
+               compute_r2, "in_file")
+
+    wf.connect(compute_r1, "out_file", output_node, "r1_map_file")
+    wf.connect(compute_r2, "out_file", output_node, "r2_map_file")
+    wf.connect(scale_msec_to_sec_t1, "out_file", output_node, "t1_map_file")
+    wf.connect(scale_msec_to_sec_t2, "out_file", output_node, "t2_map_file")
+    wf.connect(compute_t2_t1_am_node, "am_file", output_node, "am_map_file")
 
     return wf
