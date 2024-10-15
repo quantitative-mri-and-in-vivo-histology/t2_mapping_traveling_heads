@@ -211,7 +211,7 @@ def main():
                                        b1_siemens_map_file=b1_map_file,
                                        b1_siemens_json_dict=b1_map_json_dict,
                                        b1_anat_ref_file=b1_anat_ref_file,
-                                       b1_anat_json_dict=b1_anat_json_dict,
+                                       b1_anat_json_dict=b1_anat_ref_json_dict,
                                        b1_normalization_factor=b1_normalization_factor))
 
     print(inputs)
@@ -226,12 +226,6 @@ def main():
 
     wf = Workflow(name="prepare_kings_dataset")
     wf.base_dir = args.base_dir
-
-    output_node = Node(IdentityInterface(fields=[
-        "t2w_files",
-        "t1w_files",
-        "b1_relative_map_file"
-    ]), name='output_node')
 
     # normalize B1 map
     normalize_b1 = pe.Node(
@@ -254,10 +248,6 @@ def main():
         op_string='-mul {}'.format(t2w_scaling_factor)),
         iterfield=['in_file'], name="rescale_t2w")
     wf.connect(input_node, "t2w_files", rescale_t2w, "in_file")
-
-    wf.connect(rescale_t1w, "out_file", output_node, "t1w_files")
-    wf.connect(rescale_t2w, "out_file", output_node, "t2w_files")
-    wf.connect(normalize_b1, "out_file", output_node, "b1_relative_map_file")
 
     out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
                   'sub-{subject}_ses-{session}[_acq-{acquisition}]' \

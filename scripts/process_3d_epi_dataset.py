@@ -83,6 +83,7 @@ def main():
     inputs = []
     subjects = layout.get_subjects()
     subjects = ["phy003"]
+
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -173,82 +174,82 @@ def main():
         ('b1_anat_ref_file', 'input_node.b1_anat_ref_file'),
         ('t2w_mag_file', 'input_node.magnitude_file'),
         ('t2w_phase_file', 'input_node.phase_file'),
+        ('t1w_file', 'input_node.t1w_file'),
     ])])
 
-    # out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-    #               'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-    #               '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-    #
-    # b1_map_file_writer = pe.Node(BidsOutputWriter(),
-    #                              name="b1_map_file_writer")
-    # b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    # b1_map_file_writer.inputs.pattern = out_pattern
-    # b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-    #                                                   suffix="B1map",
-    #                                                   desc="registered")
-    # wf.connect(preprocess_ssfp_wf, "output_node.b1_map_file",
-    #            b1_map_file_writer, "in_file")
-    # wf.connect(input_node, "b1_map_file",
-    #            b1_map_file_writer, "template_file")
-    #
-    # b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
-    #                              name="b1_anat_ref_file_writer")
-    # b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    # b1_anat_ref_file_writer.inputs.pattern = out_pattern
-    # b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
-    #                                                   suffix="magnitude",
-    #                                                   desc="registered")
-    # wf.connect(preprocess_ssfp_wf, "output_node.b1_anat_ref_file",
-    #            b1_anat_ref_file_writer, "in_file")
-    # wf.connect(input_node, "b1_anat_ref_file",
-    #            b1_anat_ref_file_writer, "template_file")
-    #
-    # t1w_file_writer = pe.MapNode(BidsOutputWriter(),
-    #                              iterfield=['in_file', 'template_file'],
-    #                              name="t1w_file_writer")
-    # t1w_file_writer.inputs.output_dir = args.output_derivative_dir
-    # t1w_file_writer.inputs.pattern = out_pattern
-    # t1w_file_writer.inputs.entity_overrides = dict(part=None, desc="preproc")
-    # wf.connect(preprocess_ssfp_wf, "output_node.t1w_files",
-    #            t1w_file_writer, "in_file")
-    # wf.connect(input_node, "t1w_files",
-    #            t1w_file_writer, "template_file")
-    #
-    # t2w_file_writer = pe.MapNode(BidsOutputWriter(),
-    #                              iterfield=['in_file', 'template_file'],
-    #                              name="t2w_file_writer")
-    # t2w_file_writer.inputs.output_dir = args.output_derivative_dir
-    # t2w_file_writer.inputs.pattern = out_pattern
-    # t2w_file_writer.inputs.entity_overrides = dict(part=None, desc="preproc")
-    # wf.connect(preprocess_ssfp_wf, "output_node.t2w_files",
-    #            t2w_file_writer, "in_file")
-    # wf.connect(input_node, "t2w_files",
-    #            t2w_file_writer, "template_file")
-    # wf.run(**run_settings)
-    #
-    # t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
-    #                                  name="t1w_reg_target_writer")
-    # t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    # t1w_reg_target_writer.inputs.pattern = out_pattern
-    # t1w_reg_target_writer.inputs.entity_overrides = dict(part=None, desc="preproc", acquisition="T1wRef")
-    # wf.connect(preprocess_ssfp_wf, "output_node.reg_target_file",
-    #            t1w_reg_target_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            t1w_reg_target_writer, "template_file")
-    #
-    # brain_mask_file_writer = pe.Node(BidsOutputWriter(),
-    #                                  name="brain_mask_file_writer")
-    # brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
-    # brain_mask_file_writer.inputs.pattern = out_pattern
-    # brain_mask_file_writer.inputs.entity_overrides = dict(part=None,
-    #                                                       desc="brain",
-    #                                                       suffix="mask",
-    #                                                       acquisition=None)
-    # wf.connect(preprocess_ssfp_wf, "output_node.brain_mask_file",
-    #            brain_mask_file_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            brain_mask_file_writer, "template_file")
-    #
+    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
+                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+
+    b1_map_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="b1_map_file_writer")
+    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_map_file_writer.inputs.pattern = out_pattern
+    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
+                                                      suffix="B1map",
+                                                      desc="registered")
+    wf.connect(preprocess_3depi_wf, "output_node.b1_map_file",
+               b1_map_file_writer, "in_file")
+    wf.connect(input_node, "b1_map_file",
+               b1_map_file_writer, "template_file")
+
+    b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="b1_anat_ref_file_writer")
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_anat_ref_file_writer.inputs.pattern = out_pattern
+    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
+                                                      suffix="magnitude",
+                                                      desc="registered")
+    wf.connect(preprocess_3depi_wf, "output_node.b1_anat_ref_file",
+               b1_anat_ref_file_writer, "in_file")
+    wf.connect(input_node, "b1_anat_ref_file",
+               b1_anat_ref_file_writer, "template_file")
+
+    t2w_mag_file_writer = pe.MapNode(BidsOutputWriter(),
+                                 iterfield=['in_file', 'template_file'],
+                                 name="t2w_mag_file_writer")
+    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_mag_file_writer.inputs.pattern = out_pattern
+    t2w_mag_file_writer.inputs.entity_overrides = dict(desc="preproc")
+    wf.connect(preprocess_3depi_wf, "output_node.magnitude_file",
+               t2w_mag_file_writer, "in_file")
+    wf.connect(input_node, "t2w_mag_file",
+               t2w_mag_file_writer, "template_file")
+
+    t2w_phase_file_writer = pe.MapNode(BidsOutputWriter(),
+                                 iterfield=['in_file', 'template_file'],
+                                 name="t2w_phase_file_writer")
+    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_phase_file_writer.inputs.pattern = out_pattern
+    t2w_phase_file_writer.inputs.entity_overrides = dict(desc="preproc")
+    wf.connect(preprocess_3depi_wf, "output_node.phase_file",
+               t2w_phase_file_writer, "in_file")
+    wf.connect(input_node, "t2w_phase_file",
+               t2w_phase_file_writer, "template_file")
+
+    t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
+                                     name="t1w_reg_target_writer")
+    t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
+    t1w_reg_target_writer.inputs.pattern = out_pattern
+    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None, desc="preproc", acquisition="T1wRef")
+    wf.connect(preprocess_3depi_wf, "output_node.t1w_file",
+               t1w_reg_target_writer, "in_file")
+    wf.connect(input_node, "t1w_file",
+               t1w_reg_target_writer, "template_file")
+
+    brain_mask_file_writer = pe.Node(BidsOutputWriter(),
+                                     name="brain_mask_file_writer")
+    brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
+    brain_mask_file_writer.inputs.pattern = out_pattern
+    brain_mask_file_writer.inputs.entity_overrides = dict(part=None,
+                                                          desc="brain",
+                                                          suffix="mask",
+                                                          acquisition=None)
+    wf.connect(preprocess_3depi_wf, "output_node.brain_mask_file",
+               brain_mask_file_writer, "in_file")
+    wf.connect(input_node, "t2w_mag_file",
+               brain_mask_file_writer, "template_file")
+
     if not args.preprocess_only:
         estimate_relaxation_3d_epi_wf = estimate_relaxation_3d_epi()
 
@@ -264,26 +265,25 @@ def main():
             ('flip_angle', 'input_node.flip_angle')
         ])])
 
-    #
-    #     # write output files
-    #     out_maps = dict(
-    #         R1map="output_node.r1_map_file",
-    #         R2map="output_node.r2_map_file",
-    #         T1map="output_node.t1_map_file",
-    #         T2map="output_node.t2_map_file"
-    #     )
-    #     for out_map_suffix, out_map_name in out_maps.items():
-    #         file_writer = pe.Node(BidsOutputWriter(),
-    #                               name="file_writer_{}".format(out_map_suffix))
-    #         file_writer.inputs.output_dir = args.output_derivative_dir
-    #         file_writer.inputs.pattern = out_pattern
-    #         file_writer.inputs.entity_overrides = dict(part=None,
-    #                                                    suffix=out_map_suffix,
-    #                                                    acquisition=None)
-    #         wf.connect(estimate_relaxation_ssfp_wf, out_map_name,
-    #                    file_writer, "in_file")
-    #         wf.connect(input_node, "t1w_reg_target_file",
-    #                    file_writer, "template_file")
+        # write output files
+        out_maps = dict(
+            R1map="output_node.r1_map_file",
+            R2map="output_node.r2_map_file",
+            T1map="output_node.t1_map_file",
+            T2map="output_node.t2_map_file"
+        )
+        for out_map_suffix, out_map_name in out_maps.items():
+            file_writer = pe.Node(BidsOutputWriter(),
+                                  name="file_writer_{}".format(out_map_suffix))
+            file_writer.inputs.output_dir = args.output_derivative_dir
+            file_writer.inputs.pattern = out_pattern
+            file_writer.inputs.entity_overrides = dict(part=None,
+                                                       suffix=out_map_suffix,
+                                                       acquisition=None)
+            wf.connect(estimate_relaxation_3d_epi_wf, out_map_name,
+                       file_writer, "in_file")
+            wf.connect(input_node, "t2w_mag_file",
+                       file_writer, "template_file")
 
     wf.run(**run_settings)
 

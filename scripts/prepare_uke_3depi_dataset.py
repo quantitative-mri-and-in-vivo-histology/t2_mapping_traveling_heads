@@ -1,0 +1,261 @@
+import argparse
+import json
+import math
+import os
+import multiprocessing
+from nipype import Workflow
+from nipype.interfaces.utility import IdentityInterface, Function
+import nipype.pipeline.engine as pe
+from nipype import Node
+from bids.layout import BIDSLayout
+import nipype.interfaces.fsl as fsl
+from workflows.fieldmap_workflows import correct_b1_with_b0
+from nipype_utils import BidsOutputWriter
+from utils.io import write_minimal_bids_dataset_description, find_image_and_json
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Process a dataset with optional steps.")
+    parser.add_argument('-i', '--bids_root', required=True,
+                        help='Path to the BIDS root directory of the dataset.')
+    parser.add_argument('-d', '--derivatives', nargs='+', required=True,
+                        help='One or more derivatives directories to use.')
+    parser.add_argument('-o', '--output_derivative_dir', required=True,
+                        help='Path to the output derivatives folder.')
+    parser.add_argument('--base_dir', default=os.getcwd(),
+                        help='Base directory for processing (default: current working directory).')
+    parser.add_argument('--n_procs', type=int,
+                        default=multiprocessing.cpu_count(),
+                        help='Number of processors to use (default: all available cores).')
+    args = parser.parse_args()
+
+    # Ensure `derivatives` is a list with one or more entries
+    if not args.derivatives or len(args.derivatives) == 0:
+        raise ValueError(
+            "At least one derivatives directory must be specified with the -d option.")
+
+    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    write_minimal_bids_dataset_description(
+        dataset_root=args.output_derivative_dir,
+        dataset_name=os.path.dirname(args.output_derivative_dir)
+    )
+
+    # Define the reusable run settings in a dictionary
+    run_settings = {
+        'plugin': 'MultiProc',
+        'plugin_args': {'n_procs': args.n_procs}
+    }
+
+    # collect inputs
+    layout = BIDSLayout(args.bids_root,
+                        derivatives=args.derivatives,
+                        validate=False)
+    inputs = []
+    subjects = layout.get_subjects()
+    for subject in subjects:
+        sessions = layout.get_sessions(subject=subject)
+        sessions = [ses for ses in sessions if not ses.startswith("failed")]
+        if sessions:  # Only add subjects with existing sessions
+            for session in sessions:
+
+                test_image_entities = dict(subject=subject,
+                                           session=session,
+                                           suffix="T2w",
+                                           part="mag",
+                                           extension="nii.gz")
+
+                test_images = layout.get(**test_image_entities)
+                if len(test_images) == 0:
+                    continue
+
+                valid_runs = layout.get(return_type='id',
+                                        target='run',
+                                        **test_image_entities)
+                runs = valid_runs
+
+                if len(runs) == 0:
+                    runs = [None]
+
+                for run in runs:
+                    input_dict = dict()
+                    input_dict["subject"] = subject
+                    input_dict["session"] = session
+                    input_dict["run"] = run
+
+                    (input_dict["t1w_file"],
+                     input_dict["t1w_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dzneep3df0a107fT1w",
+                        mt="off",
+                        echo=6,
+                        part="mag",
+                        suffix="MPM",
+                        extension="nii.gz")
+
+                    (input_dict["t2w_mag_file"],
+                     input_dict["t2w_mag_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dzneep3df0a107f",
+                        suffix="T2w",
+                        part="mag",
+                        extension="nii.gz")
+
+                    (input_dict["t2w_phase_file"],
+                     input_dict["t2w_phase_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="dzneep3df0a107f",
+                        suffix="T2w",
+                        part="phase",
+                        extension="nii.gz")
+
+                    (input_dict["b1_map_file"],
+                     input_dict["b1_map_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="B1",
+                        suffix="B1Map",
+                        extension="nii.gz")
+
+                    (input_dict["b1_anat_ref_file"],
+                     input_dict["b1_anat_ref_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="B1Ref",
+                        suffix="magnitude",
+                        extension="nii.gz")
+
+                    input_dict["b1_normalization_factor"] = 1.0 / 100
+                    input_dict["rf_pulse_duration"] = 2.46e-3
+
+                    # add metadata
+                    input_dict[
+                        "t2w_mag_json_dict"]["RfPulseDuration"] = input_dict[
+                        "rf_pulse_duration"]
+                    input_dict[
+                        "t2w_phase_json_dict"]["RfPulseDuration"] = input_dict[
+                        "rf_pulse_duration"]
+                    input_dict[
+                        "t2w_mag_json_dict"]["RfPhaseIncrement"] = [
+                        0, 3, 1, 4, 2, 5]
+                    input_dict[
+                        "t2w_phase_json_dict"]["RfPhaseIncrement"] = \
+                        [0, 3, 1, 4, 2, 5]
+
+                    inputs.append(input_dict)
+
+    print(inputs)
+
+    # set up bids input node
+    input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
+                      name='input_node')
+    keys = inputs[0].keys()
+    input_node.iterables = [
+        (key, [input_dict[key] for input_dict in inputs]) for key in keys]
+    input_node.synchronize = True
+
+    wf = Workflow(name="prepare_kings_dataset")
+    wf.base_dir = args.base_dir
+
+    # normalize B1 map
+    normalize_b1 = pe.Node(
+        fsl.BinaryMaths(operation='mul'),
+        name="normalize_b1")
+    wf.connect(input_node, "b1_map_file",
+               normalize_b1, "in_file")
+    wf.connect(input_node, "b1_normalization_factor",
+               normalize_b1, "operand_value")
+
+    # scale phase to radian
+    scaling_factor = math.pi / 4096.0
+    scale_phase_from_siemens_to_radian = pe.Node(
+        fsl.ImageMaths(
+            op_string='-mul {}'.format(scaling_factor)),
+        name="scale_phase_from_siemens_to_rad")
+    wf.connect(input_node, "t2w_phase_file",
+               scale_phase_from_siemens_to_radian, "in_file")
+
+    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
+                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+
+    b1_map_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="b1_map_file_formatter")
+    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_map_file_writer.inputs.pattern = out_pattern
+    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
+                                                      suffix="B1Map")
+    wf.connect(normalize_b1, "out_file",
+               b1_map_file_writer, "in_file")
+    wf.connect(input_node, "b1_map_json_dict",
+               b1_map_file_writer, "json_dict")
+    wf.connect(input_node, "b1_map_file",
+               b1_map_file_writer, "template_file")
+
+    b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                      name="b1_anat_ref_file_writer")
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_anat_ref_file_writer.inputs.pattern = out_pattern
+    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
+                                                           suffix="magnitude")
+    wf.connect(input_node, "b1_anat_ref_file",
+               b1_anat_ref_file_writer, "in_file")
+    wf.connect(input_node, "b1_anat_ref_json_dict",
+               b1_anat_ref_file_writer, "json_dict")
+    wf.connect(input_node, "b1_anat_ref_file",
+               b1_anat_ref_file_writer, "template_file")
+
+    t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
+                                  name="t2w_mag_file_writer")
+    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_mag_file_writer.inputs.pattern = out_pattern
+    t2w_mag_file_writer.inputs.entity_overrides = dict(desc=None)
+    wf.connect(input_node, "t2w_mag_file",
+               t2w_mag_file_writer, "in_file")
+    wf.connect(input_node, "t2w_mag_file",
+               t2w_mag_file_writer, "template_file")
+    wf.connect(input_node, "t2w_mag_json_dict",
+               t2w_mag_file_writer, "json_dict")
+
+    t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
+                                    name="t2w_phase_file_writer")
+    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_phase_file_writer.inputs.pattern = out_pattern
+    t2w_phase_file_writer.inputs.entity_overrides = dict(desc=None)
+    wf.connect(scale_phase_from_siemens_to_radian, "out_file",
+               t2w_phase_file_writer, "in_file")
+    wf.connect(input_node, "t2w_phase_file",
+               t2w_phase_file_writer, "template_file")
+    wf.connect(input_node, "t2w_phase_json_dict",
+               t2w_phase_file_writer, "json_dict")
+
+    t1w_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="t1w_file_writer")
+    t1w_file_writer.inputs.output_dir = args.output_derivative_dir
+    t1w_file_writer.inputs.pattern = out_pattern
+    t1w_file_writer.inputs.entity_overrides = dict(part=None, suffix="T1w")
+    wf.connect(input_node, "t1w_file",
+               t1w_file_writer, "in_file")
+    wf.connect(input_node, "t1w_file",
+               t1w_file_writer, "template_file")
+    wf.connect(input_node, "t1w_json_dict",
+               t1w_file_writer, "json_dict")
+
+    wf.run(**run_settings)
+
+
+if __name__ == "__main__":
+    main()

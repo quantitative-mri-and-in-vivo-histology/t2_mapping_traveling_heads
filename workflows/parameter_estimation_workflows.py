@@ -266,41 +266,24 @@ def estimate_relaxation_3d_epi(base_dir=os.getcwd(),
     wf.connect(input_node, "repetition_time",
                compute_t2_t1_am_node, "repetition_time")
 
-    # scale t1 to seconds
-    msec_to_sec_factor = 1.0 / 1000
-    scale_msec_to_sec_t1 = pe.Node(
-        fsl.ImageMaths(
-            op_string='-mul {}'.format(msec_to_sec_factor)),
-        name="scale_msec_to_sec_t1")
-    wf.connect(compute_t2_t1_am_node, "t1_map_file",
-               scale_msec_to_sec_t1, "in_file")
-
-    # scale t2 to seconds
-    scale_msec_to_sec_t2 = pe.Node(
-        fsl.ImageMaths(
-            op_string='-mul {}'.format(msec_to_sec_factor)),
-        name="scale_msec_to_sec_t2")
-    wf.connect(compute_t2_t1_am_node, "t2_map_file",
-               scale_msec_to_sec_t2, "in_file")
-
     # compute R1 map
     compute_r1 = pe.Node(
         fsl.ImageMaths(op_string='-recip'),
         name="compute_r1")
-    wf.connect(scale_msec_to_sec_t1, "out_file",
+    wf.connect(compute_t2_t1_am_node, "t1_map_file",
                compute_r1, "in_file")
 
     # compute R2 map
     compute_r2 = pe.Node(
         fsl.ImageMaths(op_string='-recip'),
         name="compute_r2")
-    wf.connect(scale_msec_to_sec_t2, "out_file",
+    wf.connect(compute_t2_t1_am_node, "t2_map_file",
                compute_r2, "in_file")
 
     wf.connect(compute_r1, "out_file", output_node, "r1_map_file")
     wf.connect(compute_r2, "out_file", output_node, "r2_map_file")
-    wf.connect(scale_msec_to_sec_t1, "out_file", output_node, "t1_map_file")
-    wf.connect(scale_msec_to_sec_t2, "out_file", output_node, "t2_map_file")
-    wf.connect(compute_t2_t1_am_node, "am_file", output_node, "am_map_file")
+    wf.connect(compute_t2_t1_am_node, "t1_map_file", output_node, "t1_map_file")
+    wf.connect(compute_t2_t1_am_node, "t2_map_file", output_node, "t2_map_file")
+    wf.connect(compute_t2_t1_am_node, "am_map_file", output_node, "am_map_file")
 
     return wf
