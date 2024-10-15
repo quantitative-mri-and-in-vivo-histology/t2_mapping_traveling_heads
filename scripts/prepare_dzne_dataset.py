@@ -228,7 +228,7 @@ def correct_phase_wrap_around_workflow(base_dir=os.getcwd(),
         input_names=['in_file', 'brain_mask_file', 'fwhm', 'iterations'],
         output_names=['out_file'],
         function=inpaint),
-        name='impaint_b1_map')
+        name='inpaint_b1_map')
     inpaint_b1_map.inputs.fwhm = 2
     inpaint_b1_map.inputs.iterations = 15
     wf.connect(cut_and_merge_b1_map, "out_file",
@@ -240,7 +240,7 @@ def correct_phase_wrap_around_workflow(base_dir=os.getcwd(),
         input_names=['in_file', 'brain_mask_file', 'fwhm', 'iterations'],
         output_names=['out_file'],
         function=inpaint),
-        name='impaint_b1_anat_ref')
+        name='inpaint_b1_anat_ref')
     inpaint_b1_anat_ref.inputs.fwhm = 2
     inpaint_b1_anat_ref.inputs.iterations = 10
     wf.connect(cut_and_merge_b1_anat_ref, "out_file",
@@ -326,6 +326,9 @@ def main():
 
                 for run in runs:
                     input_dict = dict()
+                    input_dict["subject"] = subject
+                    input_dict["session"] = session
+                    input_dict["run"] = run
 
                     (input_dict["t1w_file"],
                      input_dict["t1w_json_dict"]) = find_image_and_json(
@@ -454,191 +457,206 @@ def main():
 
     print(inputs)
 
-    # set up bids input node
-    input_node = Node(
-        IdentityInterface(fields=list(inputs[0].keys())),
-        name='input_node')
-    keys = inputs[0].keys()
-    input_node.iterables = [
-        (key, [input_dict[key] for input_dict in inputs]) for
-        key in keys]
-    input_node.synchronize = True
+    for input_index, input_dict in enumerate(inputs):
 
-    wf = Workflow(name="prepare_dzne_dataset")
-    wf.base_dir = args.base_dir
+        # set up bids input node
+        input_node = Node(
+            IdentityInterface(fields=list(input_dict.keys())),
+            name='input_node')
+        for key, value in input_dict.items():
+            setattr(input_node.inputs, key, value)
 
-    # scale phase to radian
-    scaling_factor = math.pi / 4096.0
-    scale_phase_from_siemens_to_radian = pe.Node(
-        fsl.ImageMaths(
-            op_string='-mul {}'.format(scaling_factor)),
-        name="scale_phase_from_siemens_to_rad")
-    wf.connect(input_node, "t2w_phase_file",
-               scale_phase_from_siemens_to_radian, "in_file")
+        wf_id = "{}_{}_{}".format(input_dict["subject"], input_dict["session"],
+                                  input_dict["run"])
+        wf = Workflow(name="prepare_dzne_dataset_{}".format(wf_id))
+        wf.base_dir = args.base_dir
 
-    # normalize b0 (so that 1 indicates homogeneity)
-    normalize_b1 = pe.Node(fsl.BinaryMaths(operation="mul"),
-                           name="normalize_b1")
-    wf.connect(input_node, "b1_map_file",
-               normalize_b1, "in_file")
-    wf.connect(input_node, "b1_normalization_factor",
-               normalize_b1, "operand_value")
+        # scale phase to radian
+        scaling_factor = math.pi / 4096.0
+        scale_phase_from_siemens_to_radian = pe.Node(
+            fsl.ImageMaths(
+                op_string='-mul {}'.format(scaling_factor)),
+            name="scale_phase_from_siemens_to_rad")
+        wf.connect(input_node, "t2w_phase_file",
+                   scale_phase_from_siemens_to_radian, "in_file")
 
-    # convert B0 map to radian
-    unwrap_phase_b0 = pe.Node(fsl.BinaryMaths(operation="mul"),
-                              name="unwrap_phase_b0")
-    wf.connect(input_node, "b0_phasediff_file",
-               unwrap_phase_b0, "in_file")
-    wf.connect(input_node, "b0_phase_unwrap_factor",
-               unwrap_phase_b0, "operand_value")
+        # normalize b1 (so that 1 indicates homogeneity)
+        normalize_b1 = pe.Node(fsl.BinaryMaths(operation="mul"),
+                               name="normalize_b1")
+        wf.connect(input_node, "b1_map_file",
+                   normalize_b1, "in_file")
+        wf.connect(input_node, "b1_normalization_factor",
+                   normalize_b1, "operand_value")
 
-    # Compute B1 anatomical reference image as 2 * ste + fid
-    multiply_ste_by_two = pe.Node(
-        fsl.BinaryMaths(operation="mul",
-                        operand_value=2),
-        name="multiply_ste")
-    wf.connect(input_node, "b1_ste_file",
-               multiply_ste_by_two, "in_file")
-    add_fid = pe.Node(fsl.BinaryMaths(operation="add"),
-                      name="add_fid")
-    wf.connect(multiply_ste_by_two, "out_file", add_fid,
-               "in_file")
-    wf.connect(input_node, "b1_fid_file", add_fid,
-               "operand_file")
+        # convert B0 map to radian
+        unwrap_phase_b0 = pe.Node(fsl.BinaryMaths(operation="mul"),
+                                  name="unwrap_phase_b0")
+        wf.connect(input_node, "b0_phasediff_file",
+                   unwrap_phase_b0, "in_file")
+        wf.connect(input_node, "b0_phase_unwrap_factor",
+                   unwrap_phase_b0, "operand_value")
 
-    # correct phase wrap-around in B1 map and anatomical reference
-    correct_phase_wrap_around_wf = correct_phase_wrap_around_workflow()
-    wf.connect(add_fid, "out_file",
-               correct_phase_wrap_around_wf,
-               "input_node.b1_anat_ref_file")
-    wf.connect(normalize_b1, "out_file",
-               correct_phase_wrap_around_wf,
-               "input_node.b1_map_file")
-    wf.connect(input_node, "axis_wrap_around",
-               correct_phase_wrap_around_wf, "input_node.axis")
-    wf.connect(input_node, "n_voxels_wrap_around",
-               correct_phase_wrap_around_wf,
-               "input_node.n_voxels")
+        # Compute B1 anatomical reference image as 2 * ste + fid
+        multiply_ste_by_two = pe.Node(
+            fsl.BinaryMaths(operation="mul",
+                            operand_value=2),
+            name="multiply_ste")
+        wf.connect(input_node, "b1_ste_file",
+                   multiply_ste_by_two, "in_file")
+        add_fid = pe.Node(fsl.BinaryMaths(operation="add"),
+                          name="add_fid")
+        wf.connect(multiply_ste_by_two, "out_file", add_fid,
+                   "in_file")
+        wf.connect(input_node, "b1_fid_file", add_fid,
+                   "operand_file")
 
-    # b1 adjustment for T2w images
-    correct_b1_with_b0_wf = correct_b1_with_b0()
-    wf.connect(unwrap_phase_b0, "out_file",
-               correct_b1_with_b0_wf, "input_node.b0_map_file")
-    wf.connect(correct_phase_wrap_around_wf,
-               "output_node.b1_map_file",
-               correct_b1_with_b0_wf, "input_node.b1_map_file")
-    wf.connect(input_node, "b0_mag1_file",
-               correct_b1_with_b0_wf,
-               "input_node.b0_anat_ref_file")
-    wf.connect(correct_phase_wrap_around_wf,
-               "output_node.b1_anat_ref_file",
-               correct_b1_with_b0_wf,
-               "input_node.b1_anat_ref_file")
-    wf.connect(input_node, "fa_b1_in_degrees",
-               correct_b1_with_b0_wf,
-               "input_node.fa_b1_in_degrees")
-    wf.connect(input_node, "fa_nominal_in_degrees",
-               correct_b1_with_b0_wf,
-               "input_node.fa_nominal_in_degrees")
-    wf.connect(input_node, "rf_pulse_duration",
-               correct_b1_with_b0_wf,
-               "input_node.pulse_duration_in_seconds")
+        phase_wrap_b1_node = pe.Node(IdentityInterface(fields=[
+            "b1_map_file", "b1_anat_ref_file"
+        ]), name="phase_wrap_b1_node")
 
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+        # only do phase wrap-around correction for phy002 to phy004
+        if input_dict["subject"] in ["phy002", "phy003", "phy004"]:
+            correct_phase_wrap_around_wf = correct_phase_wrap_around_workflow()
+            wf.connect(add_fid, "out_file",
+                       correct_phase_wrap_around_wf,
+                       "input_node.b1_anat_ref_file")
+            wf.connect(normalize_b1, "out_file",
+                       correct_phase_wrap_around_wf, "input_node.b1_map_file")
+            wf.connect(input_node, "axis_wrap_around",
+                       correct_phase_wrap_around_wf, "input_node.axis")
+            wf.connect(input_node, "n_voxels_wrap_around",
+                       correct_phase_wrap_around_wf, "input_node.n_voxels")
 
-    b1_map_file_writer = pe.Node(BidsOutputWriter(),
-                                 name="b1_map_file_writer")
-    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_map_file_writer.inputs.pattern = out_pattern
-    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-                                                      suffix="B1Map")
-    wf.connect(correct_b1_with_b0_wf, "output_node.out_file",
-               b1_map_file_writer, "in_file")
-    wf.connect(input_node, "b1_map_json_dict",
-               b1_map_file_writer, "json_dict")
-    wf.connect(input_node, "b1_map_file",
-               b1_map_file_writer, "template_file")
+            # use phase-wrap corrected b1 data
+            wf.connect(correct_phase_wrap_around_wf, "output_node.b1_map_file",
+                       phase_wrap_b1_node, "b1_map_file")
+            wf.connect(correct_phase_wrap_around_wf,
+                       "output_node.b1_anat_ref_file",
+                       phase_wrap_b1_node, "b1_anat_ref_file")
+        else:
+            # use original b1 data
+            wf.connect(normalize_b1, "out_file",
+                       phase_wrap_b1_node, "b1_map_file")
+            wf.connect(add_fid, "out_file",
+                       phase_wrap_b1_node, "b1_anat_ref_file")
 
-    b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
-                                      name="b1_anat_ref_file_writer")
-    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.pattern = out_pattern
-    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
-                                                           suffix="magnitude")
-    wf.connect(add_fid, "out_file",
-               b1_anat_ref_file_writer, "in_file")
-    wf.connect(input_node, "b1_ste_json_dict",
-               b1_anat_ref_file_writer, "json_dict")
-    wf.connect(input_node, "b1_ste_file",
-               b1_anat_ref_file_writer, "template_file")
+        # b1 adjustment for T2w images
+        correct_b1_with_b0_wf = correct_b1_with_b0()
+        wf.connect(unwrap_phase_b0, "out_file",
+                   correct_b1_with_b0_wf, "input_node.b0_map_file")
+        wf.connect(phase_wrap_b1_node,
+                   "b1_map_file",
+                   correct_b1_with_b0_wf, "input_node.b1_map_file")
+        wf.connect(input_node, "b0_mag1_file",
+                   correct_b1_with_b0_wf,
+                   "input_node.b0_anat_ref_file")
+        wf.connect(phase_wrap_b1_node,
+                   "b1_anat_ref_file",
+                   correct_b1_with_b0_wf,
+                   "input_node.b1_anat_ref_file")
+        wf.connect(input_node, "fa_b1_in_degrees",
+                   correct_b1_with_b0_wf,
+                   "input_node.fa_b1_in_degrees")
+        wf.connect(input_node, "fa_nominal_in_degrees",
+                   correct_b1_with_b0_wf,
+                   "input_node.fa_nominal_in_degrees")
+        wf.connect(input_node, "rf_pulse_duration",
+                   correct_b1_with_b0_wf,
+                   "input_node.pulse_duration_in_seconds")
 
-    b0_map_file_writer = pe.Node(BidsOutputWriter(),
-                                 name="b0_map_file_writer")
-    b0_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b0_map_file_writer.inputs.pattern = out_pattern
-    wf.connect(unwrap_phase_b0, "out_file",
-               b0_map_file_writer, "in_file")
-    wf.connect(input_node, "b0_phasediff_json_dict",
-               b0_map_file_writer, "json_dict")
-    wf.connect(input_node, "b0_phasediff_file",
-               b0_map_file_writer, "template_file")
-    wf.connect(input_node, "b0_phasediff_entity_overrides",
-               b0_map_file_writer, "entity_overrides")
+        out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
+                      'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                      '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
-    b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
-                                      name="b0_anat_ref_file_writer")
-    b0_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b0_anat_ref_file_writer.inputs.pattern = out_pattern
-    wf.connect(input_node, "b0_mag1_file",
-               b0_anat_ref_file_writer, "in_file")
-    wf.connect(input_node, "b0_mag1_json_dict",
-               b0_anat_ref_file_writer, "json_dict")
-    wf.connect(input_node, "b0_mag1_file",
-               b0_anat_ref_file_writer, "template_file")
-    wf.connect(input_node, "b0_mag1_entity_overrides",
-               b0_anat_ref_file_writer, "entity_overrides")
+        b1_map_file_writer = pe.Node(BidsOutputWriter(),
+                                     name="b1_map_file_writer")
+        b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
+        b1_map_file_writer.inputs.pattern = out_pattern
+        b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
+                                                          suffix="B1Map")
+        wf.connect(phase_wrap_b1_node, "b1_map_file",
+                   b1_map_file_writer, "in_file")
+        wf.connect(input_node, "b1_map_json_dict",
+                   b1_map_file_writer, "json_dict")
+        wf.connect(input_node, "b1_map_file",
+                   b1_map_file_writer, "template_file")
 
-    t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
-                                  name="t2w_mag_file_writer")
-    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_mag_file_writer.inputs.pattern = out_pattern
-    t2w_mag_file_writer.inputs.entity_overrides = dict(desc=None)
-    wf.connect(input_node, "t2w_mag_file",
-               t2w_mag_file_writer, "in_file")
-    wf.connect(input_node, "t2w_mag_file",
-               t2w_mag_file_writer, "template_file")
-    wf.connect(input_node, "t2w_mag_json_dict",
-               t2w_mag_file_writer, "json_dict")
+        b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                          name="b1_anat_ref_file_writer")
+        b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+        b1_anat_ref_file_writer.inputs.pattern = out_pattern
+        b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
+                                                               suffix="magnitude")
+        wf.connect(phase_wrap_b1_node, "b1_anat_ref_file",
+                   b1_anat_ref_file_writer, "in_file")
+        wf.connect(input_node, "b1_ste_json_dict",
+                   b1_anat_ref_file_writer, "json_dict")
+        wf.connect(input_node, "b1_ste_file",
+                   b1_anat_ref_file_writer, "template_file")
 
-    t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
-                                    name="t2w_phase_file_writer")
-    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_phase_file_writer.inputs.pattern = out_pattern
-    t2w_phase_file_writer.inputs.entity_overrides = dict(desc=None)
-    wf.connect(scale_phase_from_siemens_to_radian, "out_file",
-               t2w_phase_file_writer, "in_file")
-    wf.connect(input_node, "t2w_phase_file",
-               t2w_phase_file_writer, "template_file")
-    wf.connect(input_node, "t2w_phase_json_dict",
-               t2w_phase_file_writer, "json_dict")
+        b0_map_file_writer = pe.Node(BidsOutputWriter(),
+                                     name="b0_map_file_writer")
+        b0_map_file_writer.inputs.output_dir = args.output_derivative_dir
+        b0_map_file_writer.inputs.pattern = out_pattern
+        wf.connect(unwrap_phase_b0, "out_file",
+                   b0_map_file_writer, "in_file")
+        wf.connect(input_node, "b0_phasediff_json_dict",
+                   b0_map_file_writer, "json_dict")
+        wf.connect(input_node, "b0_phasediff_file",
+                   b0_map_file_writer, "template_file")
+        wf.connect(input_node, "b0_phasediff_entity_overrides",
+                   b0_map_file_writer, "entity_overrides")
 
-    t1w_file_writer = pe.MapNode(BidsOutputWriter(),
-                                 iterfield=['in_file', 'template_file',
-                                            'json_dict'],
-                                 name="t1w_file_writer")
-    t1w_file_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_file_writer.inputs.pattern = out_pattern
-    t1w_file_writer.inputs.entity_overrides = dict(part=None)
-    wf.connect(input_node, "t1w_file",
-               t1w_file_writer, "in_file")
-    wf.connect(input_node, "t1w_file",
-               t1w_file_writer, "template_file")
-    wf.connect(input_node, "t1w_json_dict",
-               t1w_file_writer, "json_dict")
+        b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                          name="b0_anat_ref_file_writer")
+        b0_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+        b0_anat_ref_file_writer.inputs.pattern = out_pattern
+        wf.connect(input_node, "b0_mag1_file",
+                   b0_anat_ref_file_writer, "in_file")
+        wf.connect(input_node, "b0_mag1_json_dict",
+                   b0_anat_ref_file_writer, "json_dict")
+        wf.connect(input_node, "b0_mag1_file",
+                   b0_anat_ref_file_writer, "template_file")
+        wf.connect(input_node, "b0_mag1_entity_overrides",
+                   b0_anat_ref_file_writer, "entity_overrides")
 
-    wf.run(**run_settings)
+        t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
+                                      name="t2w_mag_file_writer")
+        t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
+        t2w_mag_file_writer.inputs.pattern = out_pattern
+        t2w_mag_file_writer.inputs.entity_overrides = dict(desc=None)
+        wf.connect(input_node, "t2w_mag_file",
+                   t2w_mag_file_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   t2w_mag_file_writer, "template_file")
+        wf.connect(input_node, "t2w_mag_json_dict",
+                   t2w_mag_file_writer, "json_dict")
+
+        t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
+                                        name="t2w_phase_file_writer")
+        t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
+        t2w_phase_file_writer.inputs.pattern = out_pattern
+        t2w_phase_file_writer.inputs.entity_overrides = dict(desc=None)
+        wf.connect(scale_phase_from_siemens_to_radian, "out_file",
+                   t2w_phase_file_writer, "in_file")
+        wf.connect(input_node, "t2w_phase_file",
+                   t2w_phase_file_writer, "template_file")
+        wf.connect(input_node, "t2w_phase_json_dict",
+                   t2w_phase_file_writer, "json_dict")
+
+        t1w_file_writer = pe.Node(BidsOutputWriter(),
+                                     name="t1w_file_writer")
+        t1w_file_writer.inputs.output_dir = args.output_derivative_dir
+        t1w_file_writer.inputs.pattern = out_pattern
+        t1w_file_writer.inputs.entity_overrides = dict(part=None)
+        wf.connect(input_node, "t1w_file",
+                   t1w_file_writer, "in_file")
+        wf.connect(input_node, "t1w_file",
+                   t1w_file_writer, "template_file")
+        wf.connect(input_node, "t1w_json_dict",
+                   t1w_file_writer, "json_dict")
+
+        wf.run(**run_settings)
 
 
 if __name__ == "__main__":
