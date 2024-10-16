@@ -162,7 +162,7 @@ def main():
                                        b1_siemens_map_file=b1_map_file,
                                        b1_siemens_json_dict=b1_map_json_dict,
                                        b1_anat_ref_file=b1_anat_ref_file,
-                                       b1_anat_json_dict=b1_anat_json_dict,
+                                       b1_anat_ref_json_dict=b1_anat_ref_json_dict,
                                        b1_normalization_factor=b1_normalization_factor))
 
     print(inputs)
