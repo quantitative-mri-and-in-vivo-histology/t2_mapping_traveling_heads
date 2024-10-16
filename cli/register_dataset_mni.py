@@ -59,7 +59,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    # subjects = ["phy003"]
+    subjects = ["phy003"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -154,51 +154,8 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
-    # mni_template = Info.standard_image(
-    #     'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
-    # mni_template_brain = Info.standard_image(
-    #     'MNI152_T1_2mm_brain.nii.gz')  # Get MNI template path from FSL
-    # mni_template_mask = Info.standard_image(
-    #     'MNI152_T1_2mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
 
-    # ants_reg_params = dict(
-    #     dimension=3,  # 3D registration
-    #     output_transform_prefix='output_prefix_',  # Prefix for output files
-    #     transforms=['Rigid', 'Affine', 'BSplineSyn'],  # Transformation types
-    #     transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
-    #     # Parameters for each transform
-    #     metric=['MI', 'MI', 'CC'],
-    #     # Metrics for each stage: MI for Rigid/Affine, CC for SyN
-    #     metric_weight=[1, 1, 1],  # Weights for the metrics
-    #     radius_or_number_of_bins=[32, 32, 4],
-    #     # Number of bins for MI and radius for CC
-    #     sampling_strategy=['Regular', 'Regular', None],
-    #     # Sampling strategies for each stage
-    #     sampling_percentage=[0.25, 0.25, None],  # Sampling percentages for MI
-    #     convergence_threshold=[1e-6, 1e-6, 1e-6],  # Convergence thresholds
-    #     convergence_window_size=[10, 10, 10],  # Convergence window sizes
-    #     number_of_iterations=[[1000, 500, 250, 100], [1000, 500, 250, 100],
-    #                           [100, 70, 50, 20]],
-    #     # Iterations for each resolution level
-    #     shrink_factors=[[8, 4, 2, 1], [8, 4, 2, 1], [6, 4, 2, 1]],
-    #     # Shrink factors for the multi-resolution scheme
-    #     smoothing_sigmas=[[3, 2, 1, 0], [3, 2, 1, 0], [3, 2, 1, 0]],
-    #     # Smoothing sigmas for the multi-resolution scheme
-    #     interpolation='Linear',  # Linear interpolation
-    #     output_warped_image='output_warped_image.nii.gz',  # Output warped image
-    #     output_inverse_warped_image='output_inverse_warped_image.nii.gz',
-    #     # Output inverse warped image
-    #     use_histogram_matching=True,
-    #     # Use histogram matching for multi-modal images
-    #     winsorize_upper_quantile=0.995,
-    #     # Winsorize image intensities (upper quantile)
-    #     winsorize_lower_quantile=0.005,
-    #     # Winsorize image intensities (lower quantile)
-    #     initial_moving_transform_com=True  # Align centers of mass
-    #     # fixed_image=[mni_template, mni_template, mni_template_brain]
-    # )
-
-    # quick
+    # slow and good
 
     mni_template = Info.standard_image(
         'MNI152_T1_1mm.nii.gz')  # Get MNI template path from FSL
@@ -206,6 +163,53 @@ def main():
         'MNI152_T1_1mm_brain.nii.gz')  # Get MNI template path from FSL
     mni_template_mask = Info.standard_image(
         'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
+
+    ants_reg_params = dict(
+        dimension=3,  # 3D registration
+        output_transform_prefix='output_prefix_',  # Prefix for output files
+        transforms=['Rigid', 'Affine', 'BSplineSyN'],  # Transformation types
+        transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
+        # Parameters for each transform
+        metric=['MI', 'MI', 'CC'],
+        # Metrics for each stage: MI for Rigid/Affine, CC for SyN
+        metric_weight=[1, 1, 1],  # Weights for the metrics
+        radius_or_number_of_bins=[32, 32, 4],
+        # Number of bins for MI and radius for CC
+        sampling_strategy=['Regular', 'Regular', None],
+        # Sampling strategies for each stage
+        sampling_percentage=[0.25, 0.25, None],  # Sampling percentages for MI
+        convergence_threshold=[1e-6, 1e-6, 1e-6],  # Convergence thresholds
+        convergence_window_size=[10, 10, 10],  # Convergence window sizes
+        number_of_iterations=[[1000, 500, 250, 100], [1000, 500, 250, 100],
+                              [100, 70, 50, 20]],
+        # Iterations for each resolution level
+        shrink_factors=[[8, 4, 2, 1], [8, 4, 2, 1], [6, 4, 2, 1]],
+        # Shrink factors for the multi-resolution scheme
+        smoothing_sigmas=[[3, 2, 1, 0], [3, 2, 1, 0], [3, 2, 1, 0]],
+        # Smoothing sigmas for the multi-resolution scheme
+        interpolation='Linear',  # Linear interpolation
+        output_warped_image='output_warped_image.nii.gz',  # Output warped image
+        output_inverse_warped_image='output_inverse_warped_image.nii.gz',
+        # Output inverse warped image
+        use_histogram_matching=True,
+        # Use histogram matching for multi-modal images
+        winsorize_upper_quantile=0.995,
+        # Winsorize image intensities (upper quantile)
+        winsorize_lower_quantile=0.005,
+        # Winsorize image intensities (lower quantile)
+        initial_moving_transform_com=True,  # Align centers of mass
+        fixed_image=mni_template,
+        fixed_image_masks=["NULL", "NULL", mni_template_mask],
+        moving_image_masks=["NULL", "NULL", brain_mask_file]
+    )
+
+
+    # mni_template = Info.standard_image(
+    #     'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
+    # mni_template_brain = Info.standard_image(
+    #     'MNI152_T1_2mm_brain.nii.gz')  # Get MNI template path from FSL
+    # mni_template_mask = Info.standard_image(
+    #     'MNI152_T1_2mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
 
     # ants_reg_params = dict(
     #     dimension=3,  # 3D registration
@@ -249,49 +253,51 @@ def main():
     # mni_template_mask = Info.standard_image(
     #     'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
 
-    mni_template = Info.standard_image(
-        'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
-    mni_template_brain = Info.standard_image(
-        'MNI152_T1_2mm_brain.nii.gz')  # Get MNI template path from FSL
-    mni_template_mask = Info.standard_image(
-        'MNI152_T1_2mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
-
-    ants_reg_params = dict(
-        dimension=3,  # 3D registration
-        output_transform_prefix='output_prefix_',  # Prefix for output files
-        transforms=['Rigid', 'Affine', 'SyN'],  # Rigid, affine, and SyN stages
-        transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
-        # Parameters for each transform
-        metric=['MI', 'MI', 'CC'],  # MI for Rigid/Affine, CC for SyN
-        metric_weight=[1, 1, 1],  # Equal weights for metrics
-        radius_or_number_of_bins=[32, 32, 4],  # Bins for MI, radius for CC
-        sampling_strategy=['Regular', 'Regular', None],
-        # Regular sampling for MI, none for CC
-        sampling_percentage=[0.1, 0.1, None],
-        # Reduce sampling to 10% for faster MI
-        convergence_threshold=[1e-3, 1e-3, 1e-3],
-        # Relax convergence thresholds
-        convergence_window_size=[5, 5, 5],
-        # Smaller window sizes for convergence
-        number_of_iterations=[[100, 50], [100, 50], [25, 10]],
-        # Fewer iterations
-        shrink_factors=[[4, 2], [4, 2], [2, 1]],  # Coarser shrink factors
-        smoothing_sigmas=[[2, 1], [2, 1], [1, 0]],  # Reduced smoothing sigmas
-        interpolation='Linear',  # Linear interpolation
-        output_warped_image='output_warped_image_fast.nii.gz',
-        # Output warped image
-        output_inverse_warped_image='output_inverse_warped_image_fast.nii.gz',
-        # Inverse warped image
-        use_histogram_matching=True,
-        # Histogram matching for multi-modal images
-        winsorize_upper_quantile=0.995,  # Upper quantile for winsorization
-        winsorize_lower_quantile=0.005,  # Lower quantile for winsorization
-        initial_moving_transform_com=True,
-        fixed_image=mni_template
-        # fixed_image_masks=[mni_template_mask, mni_template_mask, mni_template_mask],
-        # moving_image_masks=[brain_mask_file, brain_mask_file, brain_mask_file]
-        # Align centers of mass before registration
-    )
+    # # quick
+    #
+    # mni_template = Info.standard_image(
+    #     'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
+    # mni_template_brain = Info.standard_image(
+    #     'MNI152_T1_2mm_brain.nii.gz')  # Get MNI template path from FSL
+    # mni_template_mask = Info.standard_image(
+    #     'MNI152_T1_2mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
+    #
+    # ants_reg_params = dict(
+    #     dimension=3,  # 3D registration
+    #     output_transform_prefix='output_prefix_',  # Prefix for output files
+    #     transforms=['Rigid', 'Affine', 'SyN'],  # Rigid, affine, and SyN stages
+    #     transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
+    #     # Parameters for each transform
+    #     metric=['MI', 'MI', 'CC'],  # MI for Rigid/Affine, CC for SyN
+    #     metric_weight=[1, 1, 1],  # Equal weights for metrics
+    #     radius_or_number_of_bins=[32, 32, 4],  # Bins for MI, radius for CC
+    #     sampling_strategy=['Regular', 'Regular', None],
+    #     # Regular sampling for MI, none for CC
+    #     sampling_percentage=[0.1, 0.1, None],
+    #     # Reduce sampling to 10% for faster MI
+    #     convergence_threshold=[1e-3, 1e-3, 1e-3],
+    #     # Relax convergence thresholds
+    #     convergence_window_size=[5, 5, 5],
+    #     # Smaller window sizes for convergence
+    #     number_of_iterations=[[100, 50], [100, 50], [25, 10]],
+    #     # Fewer iterations
+    #     shrink_factors=[[4, 2], [4, 2], [2, 1]],  # Coarser shrink factors
+    #     smoothing_sigmas=[[2, 1], [2, 1], [1, 0]],  # Reduced smoothing sigmas
+    #     interpolation='Linear',  # Linear interpolation
+    #     output_warped_image='output_warped_image_fast.nii.gz',
+    #     # Output warped image
+    #     output_inverse_warped_image='output_inverse_warped_image_fast.nii.gz',
+    #     # Inverse warped image
+    #     use_histogram_matching=True,
+    #     # Histogram matching for multi-modal images
+    #     winsorize_upper_quantile=0.995,  # Upper quantile for winsorization
+    #     winsorize_lower_quantile=0.005,  # Lower quantile for winsorization
+    #     initial_moving_transform_com=True,
+    #     fixed_image=mni_template
+    #     # fixed_image_masks=[mni_template_mask, mni_template_mask, mni_template_mask],
+    #     # moving_image_masks=[brain_mask_file, brain_mask_file, brain_mask_file]
+    #     # Align centers of mass before registration
+    # )
 
     # custom
     # ants_reg_params = dict(
