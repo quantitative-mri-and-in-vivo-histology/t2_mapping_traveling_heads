@@ -109,6 +109,8 @@ def main():
                                                       suffix="T1w",
                                                       extension="nii.gz",
                                                       run=run)
+                    t1w_reg_target_files = [f for f in t1w_reg_target_files if
+                                            "processed" in str(f)]
                     assert (len(t1w_reg_target_files) == 1)
                     t1w_reg_target_file = t1w_reg_target_files[0]
 
