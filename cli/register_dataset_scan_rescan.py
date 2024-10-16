@@ -58,7 +58,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy002"]
+    subjects = ["phy003"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -101,14 +101,14 @@ def main():
                     assert (len(r2_map_files) == 1)
                     r2_map_file = r2_map_files[0]
 
-                    t2w_reg_target_files = layout.get(subject=subject,
+                    t1w_reg_target_files = layout.get(subject=subject,
                                               session=session,
-                                              part="mag",
-                                              suffix="T2w",
+                                              acquisition="T1wRef",
+                                              suffix="T1w",
                                               extension="nii.gz",
                                               run=run)
-                    assert (len(t2w_reg_target_files) == 1)
-                    t2w_reg_target_file = t2w_reg_target_files[0]
+                    assert (len(t1w_reg_target_files) == 1)
+                    t1w_reg_target_file = t1w_reg_target_files[0]
 
                     relaxation_maps = [r1_map_file, r2_map_file, t1_map_file, t2_map_file]
                     # relaxation_map_suffixes = ["R1map", "R2map", "T1map", "T2map"]
@@ -122,7 +122,7 @@ def main():
                     inputs.append(dict(subject=subject,
                                        session=session,
                                        run=run,
-                                       t2w_reg_target_file=t2w_reg_target_file,
+                                       t1w_reg_target_file=t1w_reg_target_file,
                                        t1_map_file=t1_map_file,
                                        t2_map_file=t2_map_file,
                                        r1_map_file=r1_map_file,
@@ -145,69 +145,66 @@ def main():
     input_node.synchronize = True
 
     mni_template = Info.standard_image(
-        'MNI152_T2_2mm.nii.gz')  # Get MNI template path from FSL
+        'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
+    mni_template_mask = Info.standard_image(
+        'MNI152_T1_2mm_brain_mask.nii.gz')  # Get MNI template path from FSL
 
-
+    # Adjust the ants.Registration node to perform symmetric registration
     ants_reg_params = dict(
-        dimension=3,  # 3D images
-        output_transform_prefix='output_prefix_',  # Prefix for outputs
-        transforms=['Rigid', 'Affine', 'SyN'],
-        # Start with rigid, then affine, then SyN (nonlinear)
-        transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
-        # Parameters for each transformation type
-        metric=['MI', 'MI', 'CC'],
-        # Mutual Information for rigid/affine, Cross Correlation for SyN
-        metric_weight=[1, 1, 1],  # Weight for each metric
-        radius_or_number_of_bins=[32, 32, 4],
-        # Number of histogram bins for MI, patch radius for CC
-        sampling_strategy=['Regular', 'Regular', None],
-        # Regular sampling for MI, no sampling for CC
-        sampling_percentage=[0.25, 0.25, None],  # Sampling percentage for MI
-        convergence_threshold=[1e-6, 1e-6, 1e-6],
-        # Convergence threshold for each stage
-        convergence_window_size=[10, 10, 10],  # Window size for convergence
-        number_of_iterations=[[500, 250, 100], [500, 250, 100], [200, 100, 50]],
-        # More iterations for SyN
-        shrink_factors=[[6, 4, 2], [6, 4, 2], [4, 2, 1]],
-        # Shrink factors for each stage
-        smoothing_sigmas=[[3, 2, 1], [3, 2, 1], [2, 1, 0]],
-        # Smoothing sigmas for each stage
+        dimension=3,
+        output_transform_prefix='run1_run2_midspace_',
+        transforms=['SyN'],  # Only SyN to deform both to midspace
+        transform_parameters=[(0.1, 3, 0)],  # Parameters for SyN
+        metric=['CC'],  # Cross-correlation for both runs
+        metric_weight=[1],  # Weight for metric
+        radius_or_number_of_bins=[4],  # CC radius
+        sampling_strategy=[None],  # No sampling for SyN
+        convergence_threshold=[1e-6],  # Convergence threshold
+        convergence_window_size=[10],  # Convergence window size
+        number_of_iterations=[[100, 70, 50, 20]],  # Number of iterations
+        shrink_factors=[[6, 4, 2, 1]],  # Shrink factors for multi-resolution
+        smoothing_sigmas=[[3, 2, 1, 0]],
+        # Smoothing sigmas for each resolution level
         interpolation='Linear',  # Linear interpolation
-        output_warped_image='output_warped_image.nii.gz',
-        fixed_image=mni_template  # Fixed image (e.g., MNI template)
+        output_warped_image='midspace_run1.nii.gz',
+        # Midspace warped image for run1
+        output_inverse_warped_image='midspace_run2.nii.gz',
+        # Midspace warped image for run2
+        use_histogram_matching=True,
+        # Use histogram matching for multi-modal images
+        fixed_image=scan_image,  # Use run1 as the fixed image
+        moving_image=rescan_image,  # Use run2 as the moving image
+        symmetric_forces=True  # Ensure symmetric registration for midspace
     )
 
     register_t1w = pe.Node(ants.Registration(**ants_reg_params),
-                              name="register_t1w",
-                              iterfield=["moving_image"])
-    wf.connect(input_node, "t2w_reg_target_file", register_t1w, "moving_image")
+                              name="register_t1w")
+    wf.connect(input_node, "t1w_reg_target_file", register_t1w, "moving_image")
 
     # Define the ApplyTransforms node
     apply_transforms = pe.MapNode(ApplyTransforms(), name="apply_transforms", iterfield=["input_image"])
     apply_transforms.inputs.dimension = 3  # 3D image
     apply_transforms.inputs.reference_image = mni_template
-    apply_transforms.inputs.interpolation = 'Linear'
+    apply_transforms.inputs.interpolation = 'BSpline'
 
-    wf.connect(register_t1w, 'forward_transforms',
+    wf.connect(register_t1w, 'reverse_forward_transforms',
                apply_transforms, 'transforms')
     wf.connect(input_node, 'relaxation_maps',
                apply_transforms, 'input_image')
-
 
     out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
                   'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
                   '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
-    t2w_reg_target_writer = pe.Node(BidsOutputWriter(),
-                                     name="t2w_reg_target_writer")
-    t2w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_reg_target_writer.inputs.pattern = out_pattern
-    t2w_reg_target_writer.inputs.entity_overrides = dict(part=None, acquisition="T1wRef")
+    t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
+                                     name="t1w_reg_target_writer")
+    t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
+    t1w_reg_target_writer.inputs.pattern = out_pattern
+    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None, acquisition="T1wRef")
     wf.connect(register_t1w, "warped_image",
-               t2w_reg_target_writer, "in_file")
-    wf.connect(input_node, "t2w_reg_target_file",
-               t2w_reg_target_writer, "template_file")
-
+               t1w_reg_target_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_file",
+               t1w_reg_target_writer, "template_file")
 
     map_writer = pe.MapNode(BidsOutputWriter(),
                                      name="map_writer",
@@ -216,7 +213,7 @@ def main():
     map_writer.inputs.pattern = out_pattern
     wf.connect(apply_transforms, "output_image",
                map_writer, "in_file")
-    wf.connect(input_node, "t2w_reg_target_file",
+    wf.connect(input_node, "t1w_reg_target_file",
                map_writer, "template_file")
     wf.connect(input_node, "relaxation_map_entities",
                map_writer, "entity_overrides")
