@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import multiprocessing
+from nipype.interfaces.ants import Atropos
 from nipype import Workflow, Node, Function
 from nipype.interfaces.utility import IdentityInterface
 from nipype.interfaces.fsl import Info
@@ -101,28 +102,10 @@ def main():
         'plugin_args': {'n_procs': args.n_procs}
     }
 
-    sub_cortical_prob_map_file = os.path.abspath(
-        "../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz")
-    cortical_prob_map_file = os.path.abspath(
-        "../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz")
-
-    white_matter_probseg_file = os.path.abspath('../data/atlases/white_matter.nii.gz')
-    gray_matter_probseg_file = os.path.abspath('../data/atlases/gray_matter.nii.gz')
-    csf_probseg_file = os.path.abspath('../data/atlases/csf.nii.gz')
-
-    atlases = [sub_cortical_prob_map_file,
-               cortical_prob_map_file,
-               white_matter_probseg_file,
-               gray_matter_probseg_file,
-               csf_probseg_file]
-
-    entity_overrides = [
-        dict(suffix="probseg", desc="subcortical", acquisition=None),
-        dict(suffix="probseg", desc="cortical", acquisition=None),
-        dict(suffix="probseg", desc="wm", acquisition=None),
-        dict(suffix="probseg", desc="gm", acquisition=None),
-        dict(suffix="probseg", desc="csf", acquisition=None)
-    ]
+    # entity_overrides = [
+    #     dict(suffix="probseg", desc="subcortical", acquisition=None),
+    #     dict(suffix="probseg", desc="cortical", acquisition=None),
+    # ]
 
     # collect inputs
     layout = BIDSLayout(args.bids_root,
@@ -131,7 +114,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    # subjects = ["phy003"]
+    subjects = ["phy003"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -142,37 +125,6 @@ def main():
                     runs = [None]
 
                 for run in runs:
-                    t1_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="T1map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(t1_map_files) == 1)
-                    t1_map_file = t1_map_files[0]
-
-                    t2_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="T2map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(t2_map_files) == 1)
-                    t2_map_file = t2_map_files[0]
-
-                    r1_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="R1map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(r1_map_files) == 1)
-                    r1_map_file = r1_map_files[0]
-
-                    r2_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="R2map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(r2_map_files) == 1)
-                    r2_map_file = r2_map_files[0]
 
                     t1w_reg_target_files = layout.get(subject=subject,
                                                       session=session,
@@ -221,29 +173,54 @@ def main():
                     assert (len(mni_to_sub_warp_files) == 1)
                     mni_to_sub_warp_file = mni_to_sub_warp_files[0]
 
-                    relaxation_maps = [r1_map_file, r2_map_file, t1_map_file,
-                                       t2_map_file]
-                    relaxation_map_entities = [
-                        dict(suffix="R1Map", desc=None, acquisition=None),
-                        dict(suffix="R2Map", desc=None, acquisition=None),
-                        dict(suffix="T1Map", desc=None, acquisition=None),
-                        dict(suffix="T2Map", desc=None, acquisition=None)
-                    ]
+                    csf_probseg_files = layout.get(subject=subject,
+                                                       session=session,
+                                                       suffix="probseg",
+                                                       desc="csf",
+                                                       extension="nii.gz",
+                                                       run=run)
+                    assert (len(csf_probseg_files) == 1)
+                    csf_probseg_file = csf_probseg_files[0]
+
+                    gm_probseg_files = layout.get(subject=subject,
+                                                   session=session,
+                                                   suffix="probseg",
+                                                   desc="gm",
+                                                   extension="nii.gz",
+                                                   run=run)
+                    assert (len(gm_probseg_files) == 1)
+                    gm_probseg_file = gm_probseg_files[0]
+
+                    wm_probseg_files = layout.get(subject=subject,
+                                                   session=session,
+                                                   suffix="probseg",
+                                                   desc="wm",
+                                                   extension="nii.gz",
+                                                   run=run)
+                    assert (len(wm_probseg_files) == 1)
+                    wm_probseg_file = wm_probseg_files[0]
+
+                    all_probseg_files = layout.get(subject=subject,
+                                                   session=session,
+                                                   suffix="probseg",
+                                                   desc="all",
+                                                   extension="nii.gz",
+                                                   run=run)
+                    assert (len(all_probseg_files) == 1)
+                    all_probseg_file = all_probseg_files[0]
 
                     inputs.append(dict(subject=subject,
                                        session=session,
                                        run=run,
                                        t1w_reg_target_file=t1w_reg_target_file,
                                        brain_mask_file=brain_mask_file,
-                                       t1_map_file=t1_map_file,
-                                       t2_map_file=t2_map_file,
-                                       r1_map_file=r1_map_file,
-                                       r2_map_file=r2_map_file,
-                                       relaxation_maps=relaxation_maps,
-                                       relaxation_map_entities=relaxation_map_entities,
                                        sub_to_mni_transform_file=sub_to_mni_transform_file,
                                        sub_to_mni_warp_file=sub_to_mni_warp_file,
-                                       mni_to_sub_warp_file=mni_to_sub_warp_file))
+                                       mni_to_sub_warp_file=mni_to_sub_warp_file,
+                                       csf_probseg_file=csf_probseg_file,
+                                       gm_probseg_file=gm_probseg_file,
+                                       wm_probseg_file=wm_probseg_file,
+                                       all_probseg_file=all_probseg_file))
 
     # Create a workflow
     wf = Workflow(name='register_maps_to_mni', base_dir=os.getcwd())
@@ -262,30 +239,57 @@ def main():
     wf.connect(input_node, "mni_to_sub_warp_file", merge_transforms_node, "in1")
     wf.connect(input_node, "sub_to_mni_transform_file", merge_transforms_node,
                "in2")
+    invert_transform_flags = [False, True]
+
+    # Create the Atropos node
+    atropos = Node(Atropos(), name='atropos')
+
+    # Set the inputs for Atropos
+    atropos.inputs.dimension = 3  # 3D image
+    # atropos.inputs.intensity_images = 'path_to_input_image.nii.gz'  # Input T1-weighted image
+    # atropos.inputs.mask_image = 'path_to_brain_mask.nii.gz'  # Brain mask
+    atropos.inputs.number_of_tissue_classes = 3  # Segment into 3 tissue types (CSF, gray matter, white matter)
+    atropos.inputs.initialization = 'KMeans'  # Initialize with K-means clustering
+    atropos.inputs.prior_weighting = 1  # Optional: Adjust if you have priors
+    atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'  # Output template for the tissue class probability maps
+    atropos.inputs.initialization = 'PriorProbabilityImages'
+    # atropos.inputs.mixture_model_components = [2, 2, 2]  # Use 2 components for each tissue
+    atropos.inputs.posterior_formulation = 'Socrates'  # Try different formulations
+    # atropos.inputs.max_iterations = [50, 50, 50]  # Increase iterations for better convergence
+    # atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'
+    # atropos.inputs.n_iterations = 50
+    merge_priors_node = pe.Node(Merge(3), name="merge_priors_node")
+    wf.connect(input_node, "wm_probseg_file", merge_priors_node, "in1")
+    wf.connect(input_node, "gm_probseg_file", merge_priors_node, "in2")
+    wf.connect(input_node, "csf_probseg_file", merge_priors_node, "in3")
+
+    wf.connect(input_node, "all_probseg_file", atropos, "prior_image")
+    wf.connect(input_node, "t1w_reg_target_file", atropos, "intensity_images")
+    wf.connect(input_node, "brain_mask_file", atropos, "mask_image")
+
 
     # transform atlases
-    invert_transform_flags = [False, True]
-    apply_transform_atlases = pe.MapNode(ApplyTransforms(),
-                                         name="apply_transform_atlases",
-                                         iterfield=["input_image"])
-    apply_transform_atlases.inputs.dimension = 3  # 3D image
-    apply_transform_atlases.inputs.reference_image = t1w_reg_target_file
-    apply_transform_atlases.inputs.interpolation = 'Linear'
-    apply_transform_atlases.inputs.invert_transform_flags = invert_transform_flags
-    apply_transform_atlases.inputs.input_image_type = 3
-    # apply_transform_atlases.inputs.reslice_by_header = True
-    apply_transform_atlases.inputs.input_image = atlases
-    wf.connect(merge_transforms_node, 'out',
-               apply_transform_atlases, 'transforms')
-
-    slice_to_subject_space = pe.MapNode(mrtrix3.MRTransform(),
-                                        name="slice_to_subject_space",
-                                        iterfield=["in_files"])
-    slice_to_subject_space.inputs.out_file = 'output_resliced_image.nii.gz'
-    wf.connect(apply_transform_atlases, "output_image",
-               slice_to_subject_space, "in_files")
-    wf.connect(input_node, "t1w_reg_target_file",
-               slice_to_subject_space, "template_image")
+    # apply_transform_atlases = pe.MapNode(ApplyTransforms(),
+    #                                      name="apply_transform_atlases",
+    #                                      iterfield=["input_image"])
+    # apply_transform_atlases.inputs.dimension = 3  # 3D image
+    # apply_transform_atlases.inputs.reference_image = t1w_reg_target_file
+    # apply_transform_atlases.inputs.interpolation = 'Linear'
+    # apply_transform_atlases.inputs.invert_transform_flags = invert_transform_flags
+    # apply_transform_atlases.inputs.input_image_type = 3
+    # # apply_transform_atlases.inputs.reslice_by_header = True
+    # apply_transform_atlases.inputs.input_image = atlases
+    # wf.connect(merge_transforms_node, 'out',
+    #            apply_transform_atlases, 'transforms')
+    #
+    # slice_to_subject_space = pe.MapNode(mrtrix3.MRTransform(),
+    #                                     name="slice_to_subject_space",
+    #                                     iterfield=["in_files"])
+    # slice_to_subject_space.inputs.out_file = 'output_resliced_image.nii.gz'
+    # wf.connect(apply_transform_atlases, "output_image",
+    #            slice_to_subject_space, "in_files")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            slice_to_subject_space, "template_image")
     #
     # swap_to_neuro_storage_order = pe.MapNode(
     #     fsl.SwapDimensions(new_dims=("RL", "PA", "IS")),
@@ -299,21 +303,21 @@ def main():
     #            reorient, "in_file")
 
 
-    # write outputs
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-
-    atlas_writer = pe.MapNode(BidsOutputWriter(),
-                              name="atlas_writer",
-                              iterfield=["in_file", "entity_overrides"])
-    atlas_writer.inputs.output_dir = args.output_derivative_dir
-    atlas_writer.inputs.pattern = out_pattern
-    atlas_writer.inputs.entity_overrides = entity_overrides
-    wf.connect(slice_to_subject_space, "out_file",
-               atlas_writer, "in_file")
-    wf.connect(input_node, "brain_mask_file",
-               atlas_writer, "template_file")
+    # # write outputs
+    # out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
+    #               'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+    #               '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+    #
+    # atlas_writer = pe.MapNode(BidsOutputWriter(),
+    #                           name="atlas_writer",
+    #                           iterfield=["in_file", "entity_overrides"])
+    # atlas_writer.inputs.output_dir = args.output_derivative_dir
+    # atlas_writer.inputs.pattern = out_pattern
+    # atlas_writer.inputs.entity_overrides = entity_overrides
+    # wf.connect(slice_to_subject_space, "out_file",
+    #            atlas_writer, "in_file")
+    # wf.connect(input_node, "brain_mask_file",
+    #            atlas_writer, "template_file")
 
     run_settings = {
         'plugin': 'MultiProc',

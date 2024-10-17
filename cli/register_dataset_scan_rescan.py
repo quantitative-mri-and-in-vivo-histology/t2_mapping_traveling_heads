@@ -10,6 +10,7 @@ import nipype.pipeline.engine as pe
 import nipype.interfaces.ants as ants
 from nipype_utils import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
+from nipype.interfaces.utility import Select
 
 
 def main():
@@ -58,77 +59,70 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy003"]
+    subjects = ["phy001"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
             for session in sessions:
                 runs = layout.get_runs(subject=subject, session=session)
 
-                if len(runs) == 0:
-                    runs = [None]
+                if len(runs) != 2:
+                    continue
 
                 for run in runs:
                     t1_map_files = layout.get(subject=subject,
                                            session=session,
                                            suffix="T1map",
-                                           extension="nii.gz",
-                                           run=run)
-                    assert(len(t1_map_files) == 1)
-                    t1_map_file = t1_map_files[0]
+                                           extension="nii.gz")
+                    assert(len(t1_map_files) == 2)
 
                     t2_map_files = layout.get(subject=subject,
                                            session=session,
                                            suffix="T2map",
-                                           extension="nii.gz",
-                                           run=run)
-                    assert(len(t2_map_files) == 1)
-                    t2_map_file = t2_map_files[0]
+                                           extension="nii.gz")
+                    assert(len(t2_map_files) == 2)
 
                     r1_map_files = layout.get(subject=subject,
                                               session=session,
                                               suffix="R1map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(r1_map_files) == 1)
-                    r1_map_file = r1_map_files[0]
+                                              extension="nii.gz")
+                    assert (len(r1_map_files) == 2)
 
                     r2_map_files = layout.get(subject=subject,
                                               session=session,
                                               suffix="R2map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(r2_map_files) == 1)
-                    r2_map_file = r2_map_files[0]
+                                              extension="nii.gz")
+                    assert (len(r2_map_files) == 2)
 
                     t1w_reg_target_files = layout.get(subject=subject,
                                               session=session,
                                               acquisition="T1wRef",
                                               suffix="T1w",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(t1w_reg_target_files) == 1)
-                    t1w_reg_target_file = t1w_reg_target_files[0]
+                                              extension="nii.gz")
+                    t1w_reg_target_files = [f for f in t1w_reg_target_files if
+                                            "processed" in str(f)]
+                    assert (len(t1w_reg_target_files) == 2)
 
-                    relaxation_maps = [r1_map_file, r2_map_file, t1_map_file, t2_map_file]
-                    # relaxation_map_suffixes = ["R1map", "R2map", "T1map", "T2map"]
-                    relaxation_map_entities = [
-                        dict(suffix="R1Map", desc=None),
-                        dict(suffix="R2Map", desc=None),
-                        dict(suffix="T1Map", desc=None),
-                        dict(suffix="T2Map", desc=None)
-                    ]
+                    # relaxation_maps = [r1_map_files, r2_map_files, t1_map_files, t2_map_files]
+                    # # relaxation_map_suffixes = ["R1map", "R2map", "T1map", "T2map"]
+                    # relaxation_map_entities = [
+                    #     dict(suffix="R1Map", desc=None),
+                    #     dict(suffix="R2Map", desc=None),
+                    #     dict(suffix="T1Map", desc=None),
+                    #     dict(suffix="T2Map", desc=None)
+                    # ]
 
                     inputs.append(dict(subject=subject,
                                        session=session,
                                        run=run,
-                                       t1w_reg_target_file=t1w_reg_target_file,
-                                       t1_map_file=t1_map_file,
-                                       t2_map_file=t2_map_file,
-                                       r1_map_file=r1_map_file,
-                                       r2_map_file=r2_map_file,
-                                       relaxation_maps=relaxation_maps,
-                                       relaxation_map_entities=relaxation_map_entities))
+                                       t1w_scan_file=t1w_reg_target_files[0],
+                                       t1w_rescan_file=t1w_reg_target_files[1],
+                                       t1_map_files=t1_map_files,
+                                       t2_map_files=t2_map_files,
+                                       r1_map_files=r1_map_files,
+                                       r2_map_files=r2_map_files))
+                                       # relaxation_maps=relaxation_maps,
+                                       # relaxation_map_entities=relaxation_map_entities))
 
     print(inputs)
 
@@ -172,51 +166,108 @@ def main():
         # Midspace warped image for run2
         use_histogram_matching=True,
         # Use histogram matching for multi-modal images
-        fixed_image=scan_image,  # Use run1 as the fixed image
-        moving_image=rescan_image,  # Use run2 as the moving image
+        # fixed_image=t1,  # Use run1 as the fixed image
+        # moving_image=rescan_image,  # Use run2 as the moving image
         symmetric_forces=True  # Ensure symmetric registration for midspace
     )
 
     register_t1w = pe.Node(ants.Registration(**ants_reg_params),
-                              name="register_t1w")
-    wf.connect(input_node, "t1w_reg_target_file", register_t1w, "moving_image")
+                           name="register_t1w")
+    wf.connect(input_node, "t1w_scan_file", register_t1w, "moving_image")
+    wf.connect(input_node, "t1w_rescan_file", register_t1w, "fixed_image")
 
-    # Define the ApplyTransforms node
-    apply_transforms = pe.MapNode(ApplyTransforms(), name="apply_transforms", iterfield=["input_image"])
-    apply_transforms.inputs.dimension = 3  # 3D image
-    apply_transforms.inputs.reference_image = mni_template
-    apply_transforms.inputs.interpolation = 'BSpline'
-
-    wf.connect(register_t1w, 'reverse_forward_transforms',
-               apply_transforms, 'transforms')
-    wf.connect(input_node, 'relaxation_maps',
-               apply_transforms, 'input_image')
-
+    # # Define the ApplyTransforms node
+    # apply_transforms = pe.MapNode(ApplyTransforms(), name="apply_transforms",
+    #                               iterfield=["input_image"])
+    # apply_transforms.inputs.dimension = 3  # 3D image
+    # apply_transforms.inputs.reference_image = mni_template
+    # apply_transforms.inputs.interpolation = 'BSpline'
+    #
+    # wf.connect(register_t1w, 'reverse_forward_transforms',
+    #            apply_transforms, 'transforms')
+    # wf.connect(input_node, 'relaxation_maps',
+    #            apply_transforms, 'input_image')
+    #
     out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
                   'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
                   '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+    #
+    # t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
+    #                                 name="t1w_reg_target_writer")
+    # t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
+    # t1w_reg_target_writer.inputs.pattern = out_pattern
+    # t1w_reg_target_writer.inputs.entity_overrides = dict(part=None,
+    #                                                      acquisition="T1wRef")
+    # wf.connect(register_t1w, "warped_image",
+    #            t1w_reg_target_writer, "in_file")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            t1w_reg_target_writer, "template_file")
+    #
+    # map_writer = pe.MapNode(BidsOutputWriter(),
+    #                         name="map_writer",
+    #                         iterfield=["in_file", "entity_overrides"])
+    # map_writer.inputs.output_dir = args.output_derivative_dir
+    # map_writer.inputs.pattern = out_pattern
+    # wf.connect(apply_transforms, "output_image",
+    #            map_writer, "in_file")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            map_writer, "template_file")
+    # wf.connect(input_node, "relaxation_map_entities",
+    #            map_writer, "entity_overrides")
 
-    t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
-                                     name="t1w_reg_target_writer")
-    t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_reg_target_writer.inputs.pattern = out_pattern
-    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None, acquisition="T1wRef")
-    wf.connect(register_t1w, "warped_image",
-               t1w_reg_target_writer, "in_file")
-    wf.connect(input_node, "t1w_reg_target_file",
-               t1w_reg_target_writer, "template_file")
+    # select_forward_affine_node = pe.Node(Select(index=1),
+    #                                      name="select_forward_affine_node")
+    # wf.connect(register_t1w, "reverse_forward_transforms",
+    #            select_forward_affine_node, "inlist")
+    # forward_affine_transform_writer = pe.Node(BidsOutputWriter(),
+    #                                           name="forward_affine_transform_writer")
+    # forward_affine_transform_writer.inputs.output_dir = args.output_derivative_dir
+    # forward_affine_transform_writer.inputs.pattern = out_pattern
+    # forward_affine_transform_writer.inputs.entity_overrides = dict(part=None,
+    #                                                                acquisition=None,
+    #                                                                desc="SubToMni",
+    #                                                                suffix="transform",
+    #                                                                extension="mat")
+    # wf.connect(select_forward_affine_node, "out",
+    #            forward_affine_transform_writer, "in_file")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            forward_affine_transform_writer, "template_file")
+    #
+    # select_forward_warp_node = pe.Node(Select(index=0), name="select_warp_node")
+    # wf.connect(register_t1w, "reverse_forward_transforms",
+    #            select_forward_warp_node, "inlist")
+    # forward_warp_transform_writer = pe.Node(BidsOutputWriter(),
+    #                                         name="forward_warp_transform_writer")
+    # forward_warp_transform_writer.inputs.output_dir = args.output_derivative_dir
+    # forward_warp_transform_writer.inputs.pattern = out_pattern
+    # forward_warp_transform_writer.inputs.entity_overrides = dict(part=None,
+    #                                                              acquisition=None,
+    #                                                              desc="SubToMni",
+    #                                                              suffix="warp",
+    #                                                              extension="nii.gz")
+    # wf.connect(select_forward_warp_node, "out",
+    #            forward_warp_transform_writer, "in_file")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            forward_warp_transform_writer, "template_file")
+    #
+    # select_reverse_warp_node = pe.Node(Select(index=1),
+    #                                    name="select_reverse_warp_node")
+    # wf.connect(register_t1w, "reverse_transforms",
+    #            select_reverse_warp_node, "inlist")
+    # reverse_warp_transform_writer = pe.Node(BidsOutputWriter(),
+    #                                         name="reverse_warp_transform_writer")
+    # reverse_warp_transform_writer.inputs.output_dir = args.output_derivative_dir
+    # reverse_warp_transform_writer.inputs.pattern = out_pattern
+    # reverse_warp_transform_writer.inputs.entity_overrides = dict(part=None,
+    #                                                              acquisition=None,
+    #                                                              desc="MniToSub",
+    #                                                              suffix="warp",
+    #                                                              extension="nii.gz")
+    # wf.connect(select_reverse_warp_node, "out",
+    #            reverse_warp_transform_writer, "in_file")
+    # wf.connect(input_node, "t1w_reg_target_file",
+    #            reverse_warp_transform_writer, "template_file")
 
-    map_writer = pe.MapNode(BidsOutputWriter(),
-                                     name="map_writer",
-                            iterfield=["in_file", "entity_overrides"])
-    map_writer.inputs.output_dir = args.output_derivative_dir
-    map_writer.inputs.pattern = out_pattern
-    wf.connect(apply_transforms, "output_image",
-               map_writer, "in_file")
-    wf.connect(input_node, "t1w_reg_target_file",
-               map_writer, "template_file")
-    wf.connect(input_node, "relaxation_map_entities",
-               map_writer, "entity_overrides")
 
     run_settings = {
         'plugin': 'MultiProc',

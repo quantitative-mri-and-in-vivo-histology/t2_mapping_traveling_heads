@@ -199,6 +199,7 @@ def main():
         # Winsorize image intensities (lower quantile)
         initial_moving_transform_com=True,  # Align centers of mass
         fixed_image=mni_template,
+        num_threads=3
     )
 
 
