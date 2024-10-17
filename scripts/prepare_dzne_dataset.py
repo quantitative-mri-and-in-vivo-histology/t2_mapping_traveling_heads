@@ -446,12 +446,13 @@ def main():
                     input_dict[
                         "t2w_phase_json_dict"]["RfPulseDuration"] = input_dict[
                         "rf_pulse_duration"]
+                    rf_phase_increments = [1, 2, 4, 1.5, 3, 5]
                     input_dict[
-                        "t2w_mag_json_dict"]["RfPhaseIncrement"] = [
-                        0, 3, 1, 4, 2, 5]
+                        "t2w_mag_json_dict"][
+                        "RfPhaseIncrement"] = rf_phase_increments
                     input_dict[
                         "t2w_phase_json_dict"]["RfPhaseIncrement"] = \
-                        [0, 3, 1, 4, 2, 5]
+                        rf_phase_increments
 
                     inputs.append(input_dict)
 

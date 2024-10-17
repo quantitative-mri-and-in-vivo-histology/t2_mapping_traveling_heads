@@ -188,7 +188,7 @@ def main():
 
 
     mni_template = Info.standard_image(
-        'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
+        'MNI152_T1_1mm.nii.gz')  # Get MNI template path from FSL
 
     # set up transforms and flags
     merge_transforms_node = pe.Node(Merge(2), name="merge_transforms_node")
