@@ -80,7 +80,7 @@ def subtract_background_phase(magnitude_file, phase_file):
     return magnitude_out_file, phase_out_file
 
 
-def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees,
+def correct_b1_map(b1_map_file, b0_map_file,
                    fa_nominal_in_degrees, pulse_duration_in_seconds):
     import nibabel as nib
     import numpy as np
@@ -93,11 +93,11 @@ def correct_b1_map(b1_map_file, b0_map_file, fa_b1_in_degrees,
     b1_map_image = b1_map_file_nib.get_fdata()
     b0_map_image = b0_map_file_nib.get_fdata()
 
-    def cos_omega_eff(omega_eff, delta_omega, tau=2.445e-3):
+    def cos_omega_eff(omega_eff, delta_omega, tau):
         return np.cos(omega_eff * tau) + ((delta_omega / omega_eff) ** 2) * (
                 1 - np.cos(omega_eff * tau))
 
-    def gamma_b1(alpha, tau=2.445e-3):
+    def gamma_b1(alpha, tau):
         return alpha / tau
 
     tau = pulse_duration_in_seconds

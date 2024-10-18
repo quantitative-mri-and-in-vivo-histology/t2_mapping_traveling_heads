@@ -138,6 +138,45 @@ def main():
                         suffix="magnitude",
                         extension="nii.gz")
 
+                    (input_dict["b0_mag1_file"],
+                     input_dict["b0_mag1_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="grefieldmap1acqrlshortAntoine",
+                        suffix="magnitude1",
+                        extension="nii.gz")
+
+                    (input_dict["b0_phasediff_file"],
+                     input_dict[
+                         "b0_phasediff_json_dict"]) = find_image_and_json(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        acquisition="grefieldmap1acqrlshortAntoine",
+                        suffix="phasediff",
+                        extension="nii.gz")
+
+                    input_dict["b0_mag1_entity_overrides"] = dict(
+                        run=run, acquisition="B0Ref",
+                        suffix="magnitude")
+
+                    input_dict["b0_phasediff_entity_overrides"] = dict(
+                        run=run, acquisition="B0",
+                        suffix="phasediff")
+
+                    b0_te_delta = input_dict["b0_phasediff_json_dict"][
+                                      "EchoTime2"] - \
+                                  input_dict["b0_phasediff_json_dict"][
+                                      "EchoTime1"]
+                    input_dict["b0_phase_unwrap_factor"] = 1.0 / (
+                            4096 * b0_te_delta * 2)
+
+                    input_dict["fa_nominal_in_degrees"] = input_dict[
+                        "t2w_mag_json_dict"]["FlipAngle"]
+
                     input_dict["b1_normalization_factor"] = 1.0 / 100
                     input_dict["rf_pulse_duration"] = 2.46e-3
 
@@ -150,7 +189,8 @@ def main():
                         "rf_pulse_duration"]
                     rf_phase_increments = [1, 2, 4, 1.5, 3, 5]
                     input_dict[
-                        "t2w_mag_json_dict"]["RfPhaseIncrement"] = rf_phase_increments
+                        "t2w_mag_json_dict"][
+                        "RfPhaseIncrement"] = rf_phase_increments
                     input_dict[
                         "t2w_phase_json_dict"]["RfPhaseIncrement"] = \
                         rf_phase_increments
@@ -179,6 +219,35 @@ def main():
     wf.connect(input_node, "b1_normalization_factor",
                normalize_b1, "operand_value")
 
+    # convert B0 map to radian
+    unwrap_phase_b0 = pe.Node(fsl.BinaryMaths(operation="mul"),
+                              name="unwrap_phase_b0")
+    wf.connect(input_node, "b0_phasediff_file",
+               unwrap_phase_b0, "in_file")
+    wf.connect(input_node, "b0_phase_unwrap_factor",
+               unwrap_phase_b0, "operand_value")
+
+    # b1 adjustment for T2w images
+    correct_b1_with_b0_wf = correct_b1_with_b0()
+    wf.connect(unwrap_phase_b0, "out_file",
+               correct_b1_with_b0_wf, "input_node.b0_map_file")
+    wf.connect(normalize_b1,
+               "out_file",
+               correct_b1_with_b0_wf, "input_node.b1_map_file")
+    wf.connect(input_node, "b0_mag1_file",
+               correct_b1_with_b0_wf,
+               "input_node.b0_anat_ref_file")
+    wf.connect(input_node,
+               "b1_anat_ref_file",
+               correct_b1_with_b0_wf,
+               "input_node.b1_anat_ref_file")
+    wf.connect(input_node, "fa_nominal_in_degrees",
+               correct_b1_with_b0_wf,
+               "input_node.fa_nominal_in_degrees")
+    wf.connect(input_node, "rf_pulse_duration",
+               correct_b1_with_b0_wf,
+               "input_node.pulse_duration_in_seconds")
+
     # scale phase to radian
     scaling_factor = math.pi / 4096.0
     scale_phase_from_siemens_to_radian = pe.Node(
@@ -198,7 +267,7 @@ def main():
     b1_map_file_writer.inputs.pattern = out_pattern
     b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
                                                       suffix="B1Map")
-    wf.connect(normalize_b1, "out_file",
+    wf.connect(correct_b1_with_b0_wf, "output_node.out_file",
                b1_map_file_writer, "in_file")
     wf.connect(input_node, "b1_map_json_dict",
                b1_map_file_writer, "json_dict")
@@ -217,6 +286,32 @@ def main():
                b1_anat_ref_file_writer, "json_dict")
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "template_file")
+
+    b0_map_file_writer = pe.Node(BidsOutputWriter(),
+                                 name="b0_map_file_writer")
+    b0_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b0_map_file_writer.inputs.pattern = out_pattern
+    wf.connect(unwrap_phase_b0, "out_file",
+               b0_map_file_writer, "in_file")
+    wf.connect(input_node, "b0_phasediff_json_dict",
+               b0_map_file_writer, "json_dict")
+    wf.connect(input_node, "b0_phasediff_file",
+               b0_map_file_writer, "template_file")
+    wf.connect(input_node, "b0_phasediff_entity_overrides",
+               b0_map_file_writer, "entity_overrides")
+
+    b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
+                                      name="b0_anat_ref_file_writer")
+    b0_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+    b0_anat_ref_file_writer.inputs.pattern = out_pattern
+    wf.connect(input_node, "b0_mag1_file",
+               b0_anat_ref_file_writer, "in_file")
+    wf.connect(input_node, "b0_mag1_json_dict",
+               b0_anat_ref_file_writer, "json_dict")
+    wf.connect(input_node, "b0_mag1_file",
+               b0_anat_ref_file_writer, "template_file")
+    wf.connect(input_node, "b0_mag1_entity_overrides",
+               b0_anat_ref_file_writer, "entity_overrides")
 
     t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
                                   name="t2w_mag_file_writer")
@@ -243,7 +338,7 @@ def main():
                t2w_phase_file_writer, "json_dict")
 
     t1w_file_writer = pe.Node(BidsOutputWriter(),
-                                 name="t1w_file_writer")
+                              name="t1w_file_writer")
     t1w_file_writer.inputs.output_dir = args.output_derivative_dir
     t1w_file_writer.inputs.pattern = out_pattern
     t1w_file_writer.inputs.entity_overrides = dict(part=None, suffix="T1w")

@@ -60,7 +60,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    # subjects = ["phy003"]
+    subjects = ["phy004"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions

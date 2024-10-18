@@ -416,8 +416,8 @@ def main():
                         extension="nii.gz")
 
                     input_dict["b0_phasediff_entity_overrides"] = dict(
-                        run=run, acquisition="B0Ref",
-                        suffix="magnitude")
+                        run=run, acquisition="B0",
+                        suffix="phasediff")
 
                     fa_b1_in_degrees = input_dict["b1_map_json_dict"][
                         "FlipAngle"]
@@ -434,7 +434,7 @@ def main():
                     input_dict["n_voxels_wrap_around"] = 47
 
                     input_dict["fa_b1_in_degrees"] = \
-                        input_dict["b1_map_json_dict"]["FlipAngle"]
+                        fa_b1_in_degrees
                     input_dict["fa_nominal_in_degrees"] = input_dict[
                         "t2w_mag_json_dict"]["FlipAngle"]
                     input_dict["rf_pulse_duration"] = 2.46e-3
@@ -555,9 +555,6 @@ def main():
                    "b1_anat_ref_file",
                    correct_b1_with_b0_wf,
                    "input_node.b1_anat_ref_file")
-        wf.connect(input_node, "fa_b1_in_degrees",
-                   correct_b1_with_b0_wf,
-                   "input_node.fa_b1_in_degrees")
         wf.connect(input_node, "fa_nominal_in_degrees",
                    correct_b1_with_b0_wf,
                    "input_node.fa_nominal_in_degrees")
@@ -575,7 +572,7 @@ def main():
         b1_map_file_writer.inputs.pattern = out_pattern
         b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
                                                           suffix="B1Map")
-        wf.connect(phase_wrap_b1_node, "b1_map_file",
+        wf.connect(correct_b1_with_b0_wf, "output_node.out_file",
                    b1_map_file_writer, "in_file")
         wf.connect(input_node, "b1_map_json_dict",
                    b1_map_file_writer, "json_dict")

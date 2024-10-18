@@ -592,12 +592,12 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
                apply_trans_to_b1_map, "reference_image")
 
     # extract brain
-    mni_template_2mm = fsl.Info.standard_image('MNI152_T1_2mm.nii.gz')
-    mni_template_2mm_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask_dil.nii.gz')
+    mni_template = fsl.Info.standard_image('MNI152_T1_2mm.nii.gz')
+    mni_template_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask.nii.gz')
     extract_brain = Node(ants.BrainExtraction(), name='extract_brain')
     extract_brain.inputs.dimension = 3  # 3D brain extraction
-    extract_brain.inputs.brain_template = mni_template_2mm
-    extract_brain.inputs.brain_probability_mask = mni_template_2mm_mask
+    extract_brain.inputs.brain_template = mni_template
+    extract_brain.inputs.brain_probability_mask = mni_template_mask
     extract_brain.inputs.out_prefix = 'output_prefix_'
     wf.connect(register_t1w_to_t2w, "warped_image",
                extract_brain, "anatomical_image")
