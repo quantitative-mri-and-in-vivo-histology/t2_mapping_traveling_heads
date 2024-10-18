@@ -10,6 +10,22 @@ from utils.processing import QiTgv, subtract_background_phase
 from nipype_utils import ApplyXfm4D, get_common_parent_directory
 
 
+from nipype.interfaces.ants.segmentation import BrainExtraction, BrainExtractionInputSpec
+from nipype.interfaces.base import File, traits
+
+class CustomBrainExtractionInputSpec(BrainExtractionInputSpec):
+    initial_transform = File(
+        exists=True,
+        argstr="-r %s",
+        desc="Initial transform to guide brain extraction.",
+        mandatory=False,
+    )
+
+class CustomBrainExtraction(BrainExtraction):
+    input_spec = CustomBrainExtractionInputSpec
+
+
+
 def denoise_mag_and_phase_in_complex_domain_workflow(base_dir=os.getcwd(),
                                                      name="denoise_mag_phase_complex"):
     workflow = pe.Workflow(name=name)
@@ -591,16 +607,27 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
     wf.connect(mag_first_volume_extractor, "roi_file",
                apply_trans_to_b1_map, "reference_image")
 
+    # # extract brain
+    # mni_template_1mm = fsl.Info.standard_image('MNI152_T1_1mm.nii.gz')
+    # register_t1w_to_mni = pe.Node(ants.Registration(**ants_reg_params),
+    #                           name="register_t1w_to_mni")
+    # register_t1w_to_mni.inputs.fixed_image = mni_template_1mm
+    # wf.connect(register_t1w_to_t2w, "warped_image",
+    #            register_t1w_to_mni, "moving_image")
+
     # extract brain
     mni_template = fsl.Info.standard_image('MNI152_T1_2mm.nii.gz')
-    mni_template_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask.nii.gz')
-    extract_brain = Node(ants.BrainExtraction(), name='extract_brain')
+    # mni_template_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask.nii.gz')
+    mni_template_mask = "/home/laurin/workspace/t2_mapping_traveling_heads/data/atlases/brain_probseg_2mm.nii.gz"
+    extract_brain = Node(CustomBrainExtraction(), name='extract_brain')
     extract_brain.inputs.dimension = 3  # 3D brain extraction
     extract_brain.inputs.brain_template = mni_template
     extract_brain.inputs.brain_probability_mask = mni_template_mask
     extract_brain.inputs.out_prefix = 'output_prefix_'
     wf.connect(register_t1w_to_t2w, "warped_image",
                extract_brain, "anatomical_image")
+    # wf.connect(register_t1w_to_t2w, "composite_transform",
+    #            extract_brain, "initial_transform")
 
     wf.connect(subtract_background_phase_node, "magnitude_file",
                output_node, "magnitude_file")

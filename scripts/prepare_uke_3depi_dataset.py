@@ -53,6 +53,8 @@ def main():
                         validate=False)
     inputs = []
     subjects = layout.get_subjects()
+    subjects = ["phy004"]
+
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         sessions = [ses for ses in sessions if not ses.startswith("failed")]
