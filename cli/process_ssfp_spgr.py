@@ -172,17 +172,8 @@ def main():
                create_brain_mask_wf, "input_node.in_file")
 
     # write preprocessed images
-    # datasink = pe.MapNode(DataSink(base_directory=args.output_dir),
-    #                    name="datasink", iterfield=["in_file"])
     datasink = pe.Node(DataSink(base_directory=args.output_dir),
                        name="datasink")
-    # Use MapNode for handling lists of files (T1w and T2w)
-    # t1w_file_datasink = pe.MapNode(DataSink(base_directory=args.output_dir),
-    #                                iterfield=['in_file'],
-    #                                name="t1w_file_datasink")
-    # wf.connect(preprocess_ssfp_wf, "output_node.t1w_files",
-    #            t1w_file_datasink, "in_file")
-
     wf.connect(preprocess_ssfp_wf, "output_node.b1_map_file",
                datasink, "@b1_map_file")
     wf.connect(preprocess_ssfp_wf, "output_node.b1_anat_ref_file",
