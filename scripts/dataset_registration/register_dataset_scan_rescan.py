@@ -8,9 +8,29 @@ from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
 import nipype.interfaces.ants as ants
-from nipype_utils import BidsOutputWriter
+from nodes.io import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 from nipype.interfaces.utility import Select
+
+
+# Function to average two affine transformations stored in .mat files
+def average_affine_mat_files(mat_file_A2B, mat_file_B2A, output_mat_file):
+    import scipy
+
+    # Load the .mat files using scipy.io
+    affineA2B = scipy.io.loadmat(mat_file_A2B)[
+        'AffineTransform_double_3_3']  # Example key for 3D rigid transform
+    affineB2A = scipy.io.loadmat(mat_file_B2A)[
+        'AffineTransform_double_3_3']  # Adjust key if needed
+
+    # Average the two affine matrices
+    avg_affine = (affineA2B + affineB2A) / 2.0
+
+    # Save the averaged matrix back into a .mat file with the necessary format
+    scipy.io.savemat(output_mat_file,
+                     {'AffineTransform_double_3_3': avg_affine})
+    print(f"Averaged affine matrix saved to {output_mat_file}")
+    return output_mat_file
 
 
 def main():
@@ -145,36 +165,77 @@ def main():
 
     # Adjust the ants.Registration node to perform symmetric registration
     ants_reg_params = dict(
-        dimension=3,
-        output_transform_prefix='run1_run2_midspace_',
-        transforms=['SyN'],  # Only SyN to deform both to midspace
-        transform_parameters=[(0.1, 3, 0)],  # Parameters for SyN
-        metric=['CC'],  # Cross-correlation for both runs
-        metric_weight=[1],  # Weight for metric
-        radius_or_number_of_bins=[4],  # CC radius
-        sampling_strategy=[None],  # No sampling for SyN
-        convergence_threshold=[1e-6],  # Convergence threshold
-        convergence_window_size=[10],  # Convergence window size
-        number_of_iterations=[[100, 70, 50, 20]],  # Number of iterations
-        shrink_factors=[[6, 4, 2, 1]],  # Shrink factors for multi-resolution
-        smoothing_sigmas=[[3, 2, 1, 0]],
-        # Smoothing sigmas for each resolution level
+        dimension=3,  # 3D registration
+        output_transform_prefix='output_prefix_',  # Prefix for output files
+        transforms=['Rigid', 'Affine', 'BSplineSyN'],  # Transformation types
+        transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
+        # Parameters for each transform
+        metric=['MI', 'MI', 'CC'],
+        # Metrics for each stage: MI for Rigid/Affine, CC for SyN
+        metric_weight=[1, 1, 1],  # Weights for the metrics
+        radius_or_number_of_bins=[32, 32, 4],
+        # Number of bins for MI and radius for CC
+        sampling_strategy=['Regular', 'Regular', None],
+        # Sampling strategies for each stage
+        sampling_percentage=[0.25, 0.25, None],  # Sampling percentages for MI
+        convergence_threshold=[1e-6, 1e-6, 1e-6],  # Convergence thresholds
+        convergence_window_size=[10, 10, 10],  # Convergence window sizes
+        number_of_iterations=[[1000, 500, 250, 100], [1000, 500, 250, 100],
+                              [100, 70, 50, 20]],
+        # Iterations for each resolution level
+        shrink_factors=[[8, 4, 2, 1], [8, 4, 2, 1], [6, 4, 2, 1]],
+        # Shrink factors for the multi-resolution scheme
+        smoothing_sigmas=[[3, 2, 1, 0], [3, 2, 1, 0], [3, 2, 1, 0]],
+        # Smoothing sigmas for the multi-resolution scheme
         interpolation='Linear',  # Linear interpolation
-        output_warped_image='midspace_run1.nii.gz',
-        # Midspace warped image for run1
-        output_inverse_warped_image='midspace_run2.nii.gz',
-        # Midspace warped image for run2
+        output_warped_image='output_warped_image.nii.gz',  # Output warped image
+        output_inverse_warped_image='output_inverse_warped_image.nii.gz',
+        # Output inverse warped image
         use_histogram_matching=True,
         # Use histogram matching for multi-modal images
-        # fixed_image=t1,  # Use run1 as the fixed image
-        # moving_image=rescan_image,  # Use run2 as the moving image
-        symmetric_forces=True  # Ensure symmetric registration for midspace
+        winsorize_upper_quantile=0.995,
+        # Winsorize image intensities (upper quantile)
+        winsorize_lower_quantile=0.005,
+        # Winsorize image intensities (lower quantile)
+        initial_moving_transform_com=True,  # Align centers of mass
+        fixed_image=mni_template
+        # num_threads=1
     )
 
     register_t1w = pe.Node(ants.Registration(**ants_reg_params),
                            name="register_t1w")
+
+
     wf.connect(input_node, "t1w_scan_file", register_t1w, "moving_image")
     wf.connect(input_node, "t1w_rescan_file", register_t1w, "fixed_image")
+
+    avg_transform = pe.Node(Function(
+        input_names=['mat_file_A2B', 'mat_file_B2A', 'output_mat_file'],
+        output_names=['output_mat_file'],
+        function=average_affine_mat_files),
+                            name="avg_transform")
+    avg_transform.inputs.output_mat_file = 'midspace_affine.mat'
+
+    # Step 3: Apply the Midpoint Transform to Image A and Image B
+    apply_A_to_mid = pe.Node(ApplyTransforms(), name="apply_A_to_mid")
+    apply_A_to_mid.inputs.dimension = 3
+    apply_A_to_mid.inputs.reference_image = 'imageB'  # or another reference image
+
+    apply_B_to_mid = pe.Node(ApplyTransforms(), name="apply_B_to_mid")
+    apply_B_to_mid.inputs.dimension = 3
+    apply_B_to_mid.inputs.reference_image = 'imageA'  # or another reference image
+
+    # Connect the workflow
+    wf.connect([
+        (inputnode, reg_A2B,
+         [('imageA', 'fixed_image'), ('imageB', 'moving_image')]),
+        (reg_A2B, avg_transform, [('composite_transform', 'mat_file_A2B'), (
+        'inverse_composite_transform', 'mat_file_B2A')]),
+        (avg_transform, apply_A_to_mid, [('output_mat_file', 'transforms')]),
+        (avg_transform, apply_B_to_mid, [('output_mat_file', 'transforms')]),
+        (inputnode, apply_A_to_mid, [('imageA', 'input_image')]),
+        (inputnode, apply_B_to_mid, [('imageB', 'input_image')])
+    ])
 
     # # Define the ApplyTransforms node
     # apply_transforms = pe.MapNode(ApplyTransforms(), name="apply_transforms",

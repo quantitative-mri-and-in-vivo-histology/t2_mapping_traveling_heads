@@ -6,12 +6,20 @@ import nipype.interfaces.mrtrix3 as mrtrix3
 from nipype import Node, Function
 import nipype.interfaces.fsl as fsl
 import nipype.interfaces.ants as ants
-from utils.processing import QiTgv, subtract_background_phase
-from nipype_utils import ApplyXfm4D, get_common_parent_directory
+from nodes.processing import QiTgv, ApplyXfm4D
+from utils.io import get_common_parent_directory
+from nodes.registration import create_default_ants_rigid_registration_node, \
+    create_default_ants_rigid_affine_registration_node
 
-
-from nipype.interfaces.ants.segmentation import BrainExtraction, BrainExtractionInputSpec
+from nipype.interfaces.ants.segmentation import BrainExtraction, \
+    BrainExtractionInputSpec
 from nipype.interfaces.base import File, traits
+from nipype.interfaces.fsl import Info
+from nipype.interfaces.utility import Select
+from nipype import Node
+from utils.processing import subtract_background_phase, correct_b1_map
+
+
 
 class CustomBrainExtractionInputSpec(BrainExtractionInputSpec):
     initial_transform = File(
@@ -21,8 +29,15 @@ class CustomBrainExtractionInputSpec(BrainExtractionInputSpec):
         mandatory=False,
     )
 
+
 class CustomBrainExtraction(BrainExtraction):
     input_spec = CustomBrainExtractionInputSpec
+
+    def _format_arg(self, name, spec, value):
+        # Handle initial_transform in the command
+        if name == 'initial_transform' and value:
+            return super(CustomBrainExtraction, self)._format_arg(name, spec, value)
+        return super(CustomBrainExtraction, self)._format_arg(name, spec, value)
 
 
 
@@ -299,94 +314,8 @@ def compute_t2_t1_amplitude_maps(magnitude_file,
     return t2_map_file, t1_map_file, am_map_file
 
 
-def preprocess_ssfp(base_dir=os.getcwd(), name="preprocess_ssfp"):
-    wf = pe.Workflow(name=name)
-    wf.base_dir = base_dir
-
-    input_node = pe.Node(
-        IdentityInterface(fields=[
-            "b1_map_file",
-            "b1_anat_ref_file",
-            "t1w_fa_13_file",
-            "t1w_fa_2_file",
-            "t2w_fa_12_rf_180_file",
-            "t2w_fa_49_rf_0_file",
-            "t2w_fa_49_rf_180_file"
-        ]),
-        name="input_node"
-    )
-
-    output_node = pe.Node(
-        IdentityInterface(fields=[
-            "b1_map_file",
-            "t1w_fa_13_file",
-            "t1w_fa_2_file",
-            "t2w_fa_12_rf_180_file",
-            "t2w_fa_49_rf_0_file",
-            "t2w_fa_49_rf_180_file",
-            "brain_mask_file"
-        ]),
-        name="output_node"
-    )
-
-    anat_target_file = "t1w_fa_13_file"
-    anat_moving_files = [
-        "t1w_fa_2_file",
-        "t2w_fa_12_rf_180_file",
-        "t2w_fa_49_rf_0_file",
-        "t2w_fa_49_rf_180_file"
-    ]
-
-    # denoise target image
-    tgv_alpha = 1e-5
-    denoise_target_node = pe.Node(QiTgv(alpha=tgv_alpha),
-                                  name="denoise_{}".format(anat_target_file))
-    wf.connect(input_node, anat_target_file,
-               denoise_target_node, "in_file")
-    wf.connect(denoise_target_node, "out_file",
-               output_node, anat_target_file)
-
-    # denoise each moving image, register to target image, and store as output
-    for moving_file in anat_moving_files:
-        denoise_node = pe.Node(QiTgv(alpha=tgv_alpha),
-                               name="denoise_{}".format(moving_file))
-        wf.connect(input_node, moving_file, denoise_node, "in_file")
-
-        register_wf = register_image_workflow(
-            name="register_image_wf_{}".format(moving_file))
-        wf.connect(input_node, moving_file,
-                   register_wf, "input_node.moving_file")
-        wf.connect(input_node, moving_file,
-                   register_wf, "input_node.reference_file")
-        wf.connect(denoise_target_node, "out_file",
-                   register_wf, "input_node.target_file")
-        wf.connect(register_wf, "output_node.out_file",
-                   output_node, moving_file)
-
-    # register b1 map
-    register_b1_wf = register_image_workflow(
-        name="register_b1_wf")
-    wf.connect(input_node, "b1_map_file",
-               register_b1_wf, "input_node.moving_file")
-    wf.connect(input_node, "b1_anat_ref_file",
-               register_b1_wf, "input_node.reference_file")
-    wf.connect(denoise_target_node, "out_file",
-               register_b1_wf, "input_node.target_file")
-    wf.connect(register_b1_wf, "output_node.out_file",
-               output_node, "b1_map_file")
-
-    # create brain mask for t2w images
-    create_brain_mask_wf = create_brain_mask_workflow()
-    wf.connect(denoise_target_node, "out_file",
-               create_brain_mask_wf, "input_node.in_file")
-    wf.connect(create_brain_mask_wf, "output_node.out_file",
-               output_node, "brain_mask_file")
-
-    return wf
-
-
-def preprocess_ssfp_multi_file(base_dir=os.getcwd(),
-                               name="preprocess_ssfp_multi_file"):
+def preprocess_ssfp_spgr(base_dir=os.getcwd(),
+                         name="preprocess_ssfp"):
     wf = pe.Workflow(name=name)
     wf.base_dir = base_dir
 
@@ -407,87 +336,64 @@ def preprocess_ssfp_multi_file(base_dir=os.getcwd(),
             "b1_anat_ref_file",
             "t1w_files",
             "t2w_files",
-            "reg_target_file",
-            "brain_mask_file"
+            "reg_target_file"
         ]),
         name="output_node"
     )
 
+    # denoise T1w images
     tgv_alpha = 1e-5
     denoise_t1w = pe.MapNode(QiTgv(alpha=tgv_alpha),
                              name="denoise_t1w", iterfield=["in_file"])
     wf.connect(input_node, "t1w_files", denoise_t1w, "in_file")
 
+    # denoise T2w images
     denoise_t2w = pe.MapNode(QiTgv(alpha=tgv_alpha),
                              name="denoise_t2w", iterfield=["in_file"])
     wf.connect(input_node, "t2w_files", denoise_t2w, "in_file")
 
+    # denoise reference image for motion correction
     denoise_reg_target = pe.Node(QiTgv(alpha=tgv_alpha),
                                  name="denoise_reg_target",
                                  iterfield=["in_file"])
     wf.connect(input_node, "reg_target_file", denoise_reg_target, "in_file")
 
-    ants_reg_params = dict(
-        dimension=3,  # 3D images
-        output_transform_prefix='output_prefix_',  # Prefix for outputs
-        transforms=['Rigid'],  # Rigid transformation
-        transform_parameters=[(0.1,)],  # Step size for rigid transformation
-        metric=['MI'],  # Mutual Information
-        metric_weight=[1],  # Weight of the metric
-        radius_or_number_of_bins=[32],  # Number of histogram bins for MI
-        sampling_strategy=['Regular'],  # Regular sampling
-        sampling_percentage=[0.25],  # Sampling percentage
-        convergence_threshold=[1e-6],  # Convergence threshold
-        convergence_window_size=[10],  # Convergence window size
-        number_of_iterations=[[500, 250, 100]],
-        # Reduced iterations at each level
-        shrink_factors=[[6, 3, 1]],  # Shrink factors for multi-resolution
-        smoothing_sigmas=[[2, 1, 0]],  # Smoothing sigmas for multi-resolution
-        interpolation='Linear',  # Linear interpolation
-        output_warped_image='output_warped_image.nii.gz'
-    )
-
-    register_t1w = pe.MapNode(ants.Registration(**ants_reg_params),
+    # motion correction: register all T1w images to reference image
+    register_t1w = pe.MapNode(create_default_ants_rigid_registration_node(),
                               name="register_t1w",
                               iterfield=["moving_image"])
     wf.connect(denoise_reg_target, "out_file", register_t1w, "fixed_image")
     wf.connect(denoise_t1w, "out_file", register_t1w, "moving_image")
 
-    register_t2w = pe.MapNode(ants.Registration(**ants_reg_params),
+    # motion correction: register all T2w images to reference image
+    register_t2w = pe.MapNode(create_default_ants_rigid_registration_node(),
                               name="register_t2w",
                               iterfield=["moving_image"])
     wf.connect(denoise_reg_target, "out_file", register_t2w, "fixed_image")
     wf.connect(denoise_t2w, "out_file", register_t2w, "moving_image")
 
-    register_b1_anat_ref = pe.Node(ants.Registration(**ants_reg_params),
-                                   name="register_b1_anat_ref")
+    # register b1 anatomical reference to reference image
+    register_b1_anat_ref = pe.Node(
+        create_default_ants_rigid_registration_node(),
+        name="register_b1_anat_ref")
     wf.connect(denoise_reg_target, "out_file", register_b1_anat_ref,
                "fixed_image")
     wf.connect(input_node, "b1_anat_ref_file", register_b1_anat_ref,
                "moving_image")
 
+    # transform b1 map to reference image
     apply_trans_to_b1_map = pe.Node(ants.ApplyTransforms(),
                                     name="apply_trans_to_b1_map")
     apply_trans_to_b1_map.inputs.dimension = 3  # 3D images
     apply_trans_to_b1_map.inputs.interpolation = 'Linear'
-    wf.connect(register_b1_anat_ref, "forward_transforms",
+    wf.connect(register_b1_anat_ref, "reverse_forward_transforms",
                apply_trans_to_b1_map, "transforms")
     wf.connect(input_node, "b1_map_file",
                apply_trans_to_b1_map, "input_image")
     wf.connect(denoise_reg_target, "out_file",
                apply_trans_to_b1_map, "reference_image")
 
-    # extract brain
-    mni_template_2mm = fsl.Info.standard_image('MNI152_T1_2mm.nii.gz')
-    mni_template_2mm_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask_dil.nii.gz')
-    extract_brain = Node(ants.BrainExtraction(), name='extract_brain')
-    extract_brain.inputs.dimension = 3  # 3D brain extraction
-    extract_brain.inputs.brain_template = mni_template_2mm
-    extract_brain.inputs.brain_probability_mask = mni_template_2mm_mask
-    extract_brain.inputs.out_prefix = 'output_prefix_'
-    wf.connect(denoise_reg_target, "out_file",
-               extract_brain, "anatomical_image")
-
+    # set outputs
     wf.connect(apply_trans_to_b1_map, "output_image", output_node,
                "b1_map_file")
     wf.connect(register_b1_anat_ref, "warped_image", output_node,
@@ -495,14 +401,12 @@ def preprocess_ssfp_multi_file(base_dir=os.getcwd(),
     wf.connect(denoise_reg_target, "out_file", output_node, "reg_target_file")
     wf.connect(register_t1w, "warped_image", output_node, "t1w_files")
     wf.connect(register_t2w, "warped_image", output_node, "t2w_files")
-    wf.connect(extract_brain, "BrainExtractionMask", output_node, "brain_mask_file")
 
     return wf
 
 
 def preprocess_3depi_workflow(base_dir=os.getcwd(),
-                                              name="preprocess_3depi_workflow"):
-
+                              name="preprocess_3depi_workflow"):
     wf = pe.Workflow(name=name)
     wf.base_dir = base_dir
 
@@ -511,7 +415,7 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
         "magnitude_file",
         "b1_map_file",
         "b1_anat_ref_file",
-        "t1w_file"
+        # "t1w_file"
     ]), name="input_node")
 
     output_node = pe.Node(IdentityInterface(fields=[
@@ -519,8 +423,7 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
         "magnitude_file",
         "b1_map_file",
         "b1_anat_ref_file",
-        "brain_mask_file",
-        "t1w_file"
+        # "t1w_file"
     ]), name="output_node")
 
     # denoise in T2w images
@@ -549,97 +452,135 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
                subtract_background_phase_node, "phase_file")
 
     mag_first_volume_extractor = Node(fsl.ExtractROI(),
-                                  name="mag_first_volume_extractor")
+                                      name="mag_first_volume_extractor")
     mag_first_volume_extractor.inputs.t_min = 0
     mag_first_volume_extractor.inputs.t_size = 1
     wf.connect(subtract_background_phase_node, "magnitude_file",
                mag_first_volume_extractor, "in_file")
 
-    t1w_first_volume_extractor = Node(fsl.ExtractROI(),
-                                  name="t1w_first_volume_extractor")
-    t1w_first_volume_extractor.inputs.t_min = 0
-    t1w_first_volume_extractor.inputs.t_size = 1
-    wf.connect(input_node, "t1w_file",
-               t1w_first_volume_extractor, "in_file")
+    # t1w_first_volume_extractor = Node(fsl.ExtractROI(),
+    #                                   name="t1w_first_volume_extractor")
+    # t1w_first_volume_extractor.inputs.t_min = 0
+    # t1w_first_volume_extractor.inputs.t_size = 1
+    # wf.connect(input_node, "t1w_file",
+    #            t1w_first_volume_extractor, "in_file")
 
-    ants_reg_params = dict(
-        dimension=3,  # 3D images
-        output_transform_prefix='output_prefix_',  # Prefix for outputs
-        transforms=['Rigid'],  # Rigid transformation
-        transform_parameters=[(0.1,)],  # Step size for rigid transformation
-        metric=['MI'],  # Mutual Information
-        metric_weight=[1],  # Weight of the metric
-        radius_or_number_of_bins=[32],  # Number of histogram bins for MI
-        sampling_strategy=['Regular'],  # Regular sampling
-        sampling_percentage=[0.25],  # Sampling percentage
-        convergence_threshold=[1e-6],  # Convergence threshold
-        convergence_window_size=[10],  # Convergence window size
-        number_of_iterations=[[500, 250, 100]],
-        # Reduced iterations at each level
-        shrink_factors=[[6, 3, 1]],  # Shrink factors for multi-resolution
-        smoothing_sigmas=[[2, 1, 0]],  # Smoothing sigmas for multi-resolution
-        interpolation='Linear',  # Linear interpolation
-        output_warped_image='output_warped_image.nii.gz'
-    )
-
-    register_b1_anat_ref_to_t2w = pe.Node(ants.Registration(**ants_reg_params),
-                              name="register_b1_anat_ref_to_t2w")
+    register_b1_anat_ref_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
+                                          name="register_b1_anat_ref_to_t2w")
     wf.connect(mag_first_volume_extractor, "roi_file",
                register_b1_anat_ref_to_t2w, "fixed_image")
     wf.connect(input_node, "b1_anat_ref_file",
                register_b1_anat_ref_to_t2w, "moving_image")
 
-    register_t1w_to_t2w = pe.Node(ants.Registration(**ants_reg_params),
-                              name="register_t1w_to_t2w")
-    wf.connect(mag_first_volume_extractor, "roi_file",
-               register_t1w_to_t2w, "fixed_image")
-    wf.connect(t1w_first_volume_extractor, "roi_file",
-               register_t1w_to_t2w, "moving_image")
+    # register_t1w_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
+    #                               name="register_t1w_to_t2w")
+    # wf.connect(mag_first_volume_extractor, "roi_file",
+    #            register_t1w_to_t2w, "fixed_image")
+    # wf.connect(t1w_first_volume_extractor, "roi_file",
+    #            register_t1w_to_t2w, "moving_image")
 
     apply_trans_to_b1_map = pe.Node(ants.ApplyTransforms(),
                                     name="apply_trans_to_b1_map")
     apply_trans_to_b1_map.inputs.dimension = 3  # 3D images
     apply_trans_to_b1_map.inputs.interpolation = 'Linear'
-    wf.connect(register_b1_anat_ref_to_t2w, "forward_transforms",
+    wf.connect(register_b1_anat_ref_to_t2w, "reverse_forward_transforms",
                apply_trans_to_b1_map, "transforms")
     wf.connect(input_node, "b1_map_file",
                apply_trans_to_b1_map, "input_image")
     wf.connect(mag_first_volume_extractor, "roi_file",
                apply_trans_to_b1_map, "reference_image")
 
-    # # extract brain
-    # mni_template_1mm = fsl.Info.standard_image('MNI152_T1_1mm.nii.gz')
-    # register_t1w_to_mni = pe.Node(ants.Registration(**ants_reg_params),
-    #                           name="register_t1w_to_mni")
-    # register_t1w_to_mni.inputs.fixed_image = mni_template_1mm
-    # wf.connect(register_t1w_to_t2w, "warped_image",
-    #            register_t1w_to_mni, "moving_image")
-
-    # extract brain
-    mni_template = fsl.Info.standard_image('MNI152_T1_2mm.nii.gz')
-    # mni_template_mask = fsl.Info.standard_image('MNI152_T1_2mm_brain_mask.nii.gz')
-    mni_template_mask = "/home/laurin/workspace/t2_mapping_traveling_heads/data/atlases/brain_probseg_2mm.nii.gz"
-    extract_brain = Node(CustomBrainExtraction(), name='extract_brain')
-    extract_brain.inputs.dimension = 3  # 3D brain extraction
-    extract_brain.inputs.brain_template = mni_template
-    extract_brain.inputs.brain_probability_mask = mni_template_mask
-    extract_brain.inputs.out_prefix = 'output_prefix_'
-    wf.connect(register_t1w_to_t2w, "warped_image",
-               extract_brain, "anatomical_image")
-    # wf.connect(register_t1w_to_t2w, "composite_transform",
-    #            extract_brain, "initial_transform")
-
     wf.connect(subtract_background_phase_node, "magnitude_file",
                output_node, "magnitude_file")
     wf.connect(subtract_background_phase_node, "phase_file",
                output_node, "phase_file")
-    wf.connect(extract_brain, "BrainExtractionMask",
-               output_node, "brain_mask_file")
     wf.connect(apply_trans_to_b1_map, "output_image",
                output_node, "b1_map_file")
     wf.connect(register_b1_anat_ref_to_t2w, "warped_image",
                output_node, "b1_anat_ref_file")
-    wf.connect(register_t1w_to_t2w, "warped_image",
-               output_node, "t1w_file")
+    # wf.connect(register_t1w_to_t2w, "warped_image",
+    #            output_node, "t1w_file")
+
+    return wf
+
+
+def correct_b1_with_b0(base_dir=os.getcwd(), name="correct_b1_with_b0"):
+    wf = pe.Workflow(name=name)
+    wf.base_dir = base_dir
+
+    input_node = pe.Node(util.IdentityInterface(
+        fields=['b0_map_file',
+                'b1_map_file',
+                'b0_anat_ref_file',
+                'b1_anat_ref_file',
+                'fa_nominal_in_degrees',
+                'pulse_duration_in_seconds']),
+        name='input_node')
+    output_node = pe.Node(util.IdentityInterface(fields=['out_file']),
+                          name='output_node')
+
+    register_b0_map_to_b1_map = register_image_workflow(
+        name="register_b0_map_to_b1_map")
+    wf.connect(input_node, "b0_map_file", register_b0_map_to_b1_map,
+               "input_node.moving_file")
+    wf.connect(input_node, "b0_anat_ref_file", register_b0_map_to_b1_map,
+               "input_node.reference_file")
+    wf.connect(input_node, "b1_anat_ref_file", register_b0_map_to_b1_map,
+               "input_node.target_file")
+
+    # Correct B1 map
+    correct_b1_map_node = Node(Function(
+        input_names=['b1_map_file', 'b0_map_file', 'fa_nominal_in_degrees',
+                     'pulse_duration_in_seconds'],
+        output_names=['b1_output_file'],
+        function=correct_b1_map),
+        name='correct_b1_map')
+
+    wf.connect(register_b0_map_to_b1_map, "output_node.out_file",
+               correct_b1_map_node, "b0_map_file")
+    wf.connect(input_node, "b1_map_file", correct_b1_map_node, "b1_map_file")
+    wf.connect(input_node, "fa_nominal_in_degrees", correct_b1_map_node,
+               "fa_nominal_in_degrees")
+    wf.connect(input_node, "pulse_duration_in_seconds", correct_b1_map_node,
+               "pulse_duration_in_seconds")
+    wf.connect(correct_b1_map_node, "b1_output_file", output_node, "out_file")
+
+    return wf
+
+
+def create_brain_mask(base_dir=os.getcwd(), name="create_brain_mask"):
+    wf = pe.Workflow(name=name)
+    wf.base_dir = base_dir
+
+    input_node = pe.Node(util.IdentityInterface(
+        fields=['in_file']),
+        name='input_node')
+
+    output_node = pe.Node(util.IdentityInterface(
+        fields=['out_file']),
+        name='output_node')
+
+    # motion correction: register all T1w images to reference image
+    register_to_mni = pe.Node(create_default_ants_rigid_affine_registration_node(),
+                              name="register_t1w",
+                              iterfield=["moving_image"])
+    register_to_mni.inputs.fixed_image = Info.standard_image('MNI152_T1_1mm.nii.gz')
+    wf.connect(input_node, "in_file", register_to_mni, "moving_image")
+
+    # extract_brain
+    extract_brain = Node(CustomBrainExtraction(), name='extract_brain')
+    extract_brain.inputs.dimension = 3  # 3D brain extraction
+    extract_brain.inputs.brain_template = Info.standard_image('MNI152_T1_2mm.nii.gz')
+    extract_brain.inputs.brain_probability_mask = Info.standard_image('MNI152_T1_2mm_brain_mask_dil.nii.gz')
+    extract_brain.inputs.out_prefix = 'output_prefix_'
+    wf.connect(input_node, "in_file",
+               extract_brain, "anatomical_image")
+    select_node = Node(Select(index=0), name="select_node")
+    wf.connect(register_to_mni, "reverse_forward_transforms",
+               select_node, "inlist")
+    wf.connect(select_node, "out",
+               extract_brain, "initial_transform")
+
+    wf.connect(extract_brain, "BrainExtractionMask", output_node, "out_file")
 
     return wf

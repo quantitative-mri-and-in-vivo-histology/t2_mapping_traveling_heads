@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import multiprocessing
+import nibabel as nib
 from nipype.interfaces.ants import Atropos
 from nipype import Workflow, Node, Function
 from nipype.interfaces.utility import IdentityInterface
@@ -21,6 +22,7 @@ from nipype import Node, Workflow
 from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
                                     TraitedSpec, File, traits, isdefined)
 from nipype.utils.filemanip import fname_presuffix
+from nipype.interfaces.utility import Rename
 
 
 # Define the InputSpec
@@ -61,6 +63,33 @@ class FslOrientSwap(CommandLine):
         outputs = self.output_spec().get()
         outputs['out_file'] = os.path.abspath(self.inputs.out_file)
         return outputs
+
+
+# Function to copy files and rename them, with automatic directory creation
+def copy_and_rename_files(file_list, format_str, base_dir=None):
+    import os
+    import shutil
+
+    if base_dir is None:
+        base_dir = os.getcwd()
+
+    # Automatically create an 'priors' subdirectory in the base directory
+    output_dir = base_dir
+    os.makedirs(output_dir,
+                exist_ok=True)  # Create the directory if it doesn't exist
+
+    output_format_str = os.path.join(output_dir, format_str)
+
+    output_files = []
+    for i, file_path in enumerate(file_list, start=1):
+        # Generate the new filename based on the format_str
+        new_filename = os.path.join(output_dir, format_str % i)
+        # Copy the file to the new location with the new name
+        shutil.copy(file_path, new_filename)
+        output_files.append(new_filename)
+
+    # Return the list of copied files and the output directory
+    return output_files, output_format_str
 
 
 def main():
@@ -114,7 +143,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy003"]
+    # subjects = ["phy003"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -136,6 +165,14 @@ def main():
                                             "processed" in str(f)]
                     assert (len(t1w_reg_target_files) == 1)
                     t1w_reg_target_file = t1w_reg_target_files[0]
+
+                    t1_map_files = layout.get(subject=subject,
+                                              session=session,
+                                              suffix="T1map",
+                                              extension="nii.gz",
+                                              run=run)
+                    assert (len(t1_map_files) == 1)
+                    t1_map_file = t1_map_files[0]
 
                     brain_mask_files = layout.get(subject=subject,
                                                   session=session,
@@ -200,19 +237,17 @@ def main():
                     assert (len(wm_probseg_files) == 1)
                     wm_probseg_file = wm_probseg_files[0]
 
-                    all_probseg_files = layout.get(subject=subject,
-                                                   session=session,
-                                                   suffix="probseg",
-                                                   desc="all",
-                                                   extension="nii.gz",
-                                                   run=run)
-                    assert (len(all_probseg_files) == 1)
-                    all_probseg_file = all_probseg_files[0]
+                    entity_overrides = [
+                        dict(suffix="probseg", desc="wmPosterior", acquisition=None),
+                        dict(suffix="probseg", desc="gmPosterior", acquisition=None),
+                        dict(suffix="probseg", desc="csfPosterior", acquisition=None)
+                    ]
 
                     inputs.append(dict(subject=subject,
                                        session=session,
                                        run=run,
                                        t1w_reg_target_file=t1w_reg_target_file,
+                                       t1_map_file=t1_map_file,
                                        brain_mask_file=brain_mask_file,
                                        sub_to_mni_transform_file=sub_to_mni_transform_file,
                                        sub_to_mni_warp_file=sub_to_mni_warp_file,
@@ -220,7 +255,7 @@ def main():
                                        csf_probseg_file=csf_probseg_file,
                                        gm_probseg_file=gm_probseg_file,
                                        wm_probseg_file=wm_probseg_file,
-                                       all_probseg_file=all_probseg_file))
+                                       entity_overrides=entity_overrides))
 
     # Create a workflow
     wf = Workflow(name='register_maps_to_mni', base_dir=os.getcwd())
@@ -234,90 +269,60 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
-    # set up transforms and flags
-    merge_transforms_node = pe.Node(Merge(2), name="merge_transforms_node")
-    wf.connect(input_node, "mni_to_sub_warp_file", merge_transforms_node, "in1")
-    wf.connect(input_node, "sub_to_mni_transform_file", merge_transforms_node,
-               "in2")
-    invert_transform_flags = [False, True]
-
-    # Create the Atropos node
-    atropos = Node(Atropos(), name='atropos')
-
-    # Set the inputs for Atropos
-    atropos.inputs.dimension = 3  # 3D image
-    # atropos.inputs.intensity_images = 'path_to_input_image.nii.gz'  # Input T1-weighted image
-    # atropos.inputs.mask_image = 'path_to_brain_mask.nii.gz'  # Brain mask
-    atropos.inputs.number_of_tissue_classes = 3  # Segment into 3 tissue types (CSF, gray matter, white matter)
-    atropos.inputs.initialization = 'KMeans'  # Initialize with K-means clustering
-    atropos.inputs.prior_weighting = 1  # Optional: Adjust if you have priors
-    atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'  # Output template for the tissue class probability maps
-    atropos.inputs.initialization = 'PriorProbabilityImages'
-    # atropos.inputs.mixture_model_components = [2, 2, 2]  # Use 2 components for each tissue
-    atropos.inputs.posterior_formulation = 'Socrates'  # Try different formulations
-    # atropos.inputs.max_iterations = [50, 50, 50]  # Increase iterations for better convergence
-    # atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'
-    # atropos.inputs.n_iterations = 50
     merge_priors_node = pe.Node(Merge(3), name="merge_priors_node")
     wf.connect(input_node, "wm_probseg_file", merge_priors_node, "in1")
     wf.connect(input_node, "gm_probseg_file", merge_priors_node, "in2")
     wf.connect(input_node, "csf_probseg_file", merge_priors_node, "in3")
 
-    wf.connect(input_node, "all_probseg_file", atropos, "prior_image")
-    wf.connect(input_node, "t1w_reg_target_file", atropos, "intensity_images")
+    # Define the function node
+    copy_prior_node = Node(Function(
+        input_names=['file_list', 'format_str'],
+        output_names=['output_files', 'output_format_str'],
+        function=copy_and_rename_files
+    ), name='copy_prior_node')
+    copy_prior_node.inputs.format_str = 'prior_%02d.nii.gz'  # Format string
+    wf.connect(merge_priors_node, "out", copy_prior_node, "file_list")
+
+    dummy_prior_node = Node(IdentityInterface(fields=["prior_files"]),
+                      name='dummy_prior_node')
+    wf.connect(copy_prior_node, "output_files", dummy_prior_node, "prior_files")
+
+    # Create the Atropos node
+    atropos = Node(Atropos(), name='atropos')
+    atropos.inputs.dimension = 3  # 3D image
+    atropos.inputs.number_of_tissue_classes = 3  # Segment into 3 tissue types (CSF, gray matter, white matter)
+    atropos.inputs.prior_weighting = 0.2  # Optional: Adjust if you have priors
+    atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'  # Output template for the tissue class probability maps
+    atropos.inputs.initialization = 'PriorProbabilityImages'
+    atropos.inputs.posterior_formulation = 'Socrates'  # Try different formulations
+    atropos.inputs.mrf_smoothing_factor = 0.1
+    atropos.inputs.mrf_radius = [1, 1, 1]
+    atropos.inputs.likelihood_model = "Gaussian"
+    atropos.inputs.prior_probability_threshold = 0
+    atropos.inputs.convergence_threshold = 0
+    atropos.inputs.n_iterations = 5
+    atropos.inputs.save_posteriors = True
+
+    wf.connect(copy_prior_node, "output_format_str", atropos, "prior_image")
+    wf.connect(input_node, "t1_map_file", atropos, "intensity_images")
     wf.connect(input_node, "brain_mask_file", atropos, "mask_image")
 
 
-    # transform atlases
-    # apply_transform_atlases = pe.MapNode(ApplyTransforms(),
-    #                                      name="apply_transform_atlases",
-    #                                      iterfield=["input_image"])
-    # apply_transform_atlases.inputs.dimension = 3  # 3D image
-    # apply_transform_atlases.inputs.reference_image = t1w_reg_target_file
-    # apply_transform_atlases.inputs.interpolation = 'Linear'
-    # apply_transform_atlases.inputs.invert_transform_flags = invert_transform_flags
-    # apply_transform_atlases.inputs.input_image_type = 3
-    # # apply_transform_atlases.inputs.reslice_by_header = True
-    # apply_transform_atlases.inputs.input_image = atlases
-    # wf.connect(merge_transforms_node, 'out',
-    #            apply_transform_atlases, 'transforms')
-    #
-    # slice_to_subject_space = pe.MapNode(mrtrix3.MRTransform(),
-    #                                     name="slice_to_subject_space",
-    #                                     iterfield=["in_files"])
-    # slice_to_subject_space.inputs.out_file = 'output_resliced_image.nii.gz'
-    # wf.connect(apply_transform_atlases, "output_image",
-    #            slice_to_subject_space, "in_files")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            slice_to_subject_space, "template_image")
-    #
-    # swap_to_neuro_storage_order = pe.MapNode(
-    #     fsl.SwapDimensions(new_dims=("RL", "PA", "IS")),
-    #     name="swap_to_neuro_storage_order", iterfield=["in_file"])
-    # wf.connect(slice_to_subject_space, "out_file",
-    #            swap_to_neuro_storage_order, "in_file")
-    #
-    #
-    # reorient = pe.MapNode(FslOrientSwap(), name="reorient", iterfield=["in_file"])
-    # wf.connect(slice_to_subject_space, "out_file",
-    #            reorient, "in_file")
+    # write outputs
+    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
+                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
-
-    # # write outputs
-    # out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-    #               'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-    #               '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-    #
-    # atlas_writer = pe.MapNode(BidsOutputWriter(),
-    #                           name="atlas_writer",
-    #                           iterfield=["in_file", "entity_overrides"])
-    # atlas_writer.inputs.output_dir = args.output_derivative_dir
-    # atlas_writer.inputs.pattern = out_pattern
-    # atlas_writer.inputs.entity_overrides = entity_overrides
-    # wf.connect(slice_to_subject_space, "out_file",
-    #            atlas_writer, "in_file")
-    # wf.connect(input_node, "brain_mask_file",
-    #            atlas_writer, "template_file")
+    atlas_writer = pe.MapNode(BidsOutputWriter(),
+                              name="atlas_writer",
+                              iterfield=["in_file", "entity_overrides"])
+    atlas_writer.inputs.output_dir = args.output_derivative_dir
+    atlas_writer.inputs.pattern = out_pattern
+    atlas_writer.inputs.entity_overrides = entity_overrides
+    wf.connect(atropos, "posteriors",
+               atlas_writer, "in_file")
+    wf.connect(input_node, "brain_mask_file",
+               atlas_writer, "template_file")
 
     run_settings = {
         'plugin': 'MultiProc',

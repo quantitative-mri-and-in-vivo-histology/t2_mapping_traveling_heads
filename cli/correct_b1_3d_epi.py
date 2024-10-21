@@ -15,15 +15,15 @@ from nipype import Node, Function
 from abc import abstractmethod, ABC
 from bids.layout import BIDSLayout
 from datasets.bids_dataset import BidsDataset
-from workflows.preprocessing_workflows import \
+from workflows.processing import \
     denoise_mag_and_phase_in_complex_domain_workflow, \
     motion_correction_mag_and_phase_workflow, create_brain_mask_workflow, \
     register_image_workflow
 from utils.io import ExplicitPathDataSink
 import nipype.interfaces.fsl as fsl
 from nipype_utils import BidsRename, BidsOutputFormatter, BidsOutputWriter
-from workflows.preprocessing_workflows import preprocess_3depi_workflow
-from workflows.parameter_estimation_workflows import \
+from workflows.processing import preprocess_3depi_workflow
+from workflows.parameter_estimation import \
     estimate_relaxation_3d_epi
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 

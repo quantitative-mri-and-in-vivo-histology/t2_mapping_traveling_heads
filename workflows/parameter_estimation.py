@@ -1,15 +1,11 @@
 from nipype.interfaces.utility import IdentityInterface
-import nipype.interfaces.utility as util
 import nipype.pipeline.engine as pe
-import nipype.interfaces.mrtrix3 as mrtrix3
 from nipype import Node, Function
 import nipype.interfaces.fsl as fsl
 import os
-from utils.processing import QiTgv, QiJsr, compute_t2_t1_amplitude_maps
-from nipype_utils import ApplyXfm4D, get_common_parent_directory
+from nodes.processing import QiJsr
+from utils.processing import compute_t2_t1_amplitude_maps
 from nipype.interfaces.utility import Merge
-from workflows.preprocessing_workflows import create_brain_mask_workflow
-from pathlib import Path
 from utils.io import write_json
 
 
@@ -117,20 +113,6 @@ def estimate_relaxation_ssfp(base_dir=os.getcwd(),
         ]),
         name="output_node"
     )
-
-    # qi_jsr_config_dict = dict(
-    #     SPGR=dict(
-    #         TR=0.0062,
-    #         TE=0.003,
-    #         FA=[2, 13]
-    #     ),
-    #     SSFP=dict(
-    #         TR=0.006,
-    #         Trf=0.0013,
-    #         FA=[12, 49, 49],
-    #         PhaseInc=[180, 0, 180]
-    #     )
-    # )
 
     qi_jsr_config_dict = dict(
         SPGR=dict(

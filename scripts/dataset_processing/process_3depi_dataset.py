@@ -1,31 +1,25 @@
 import argparse
-import os
-import multiprocessing
-from nipype import Workflow
-import shutil
-
-import json
-import os
 import math
+import multiprocessing
+import os
 
-from PyQt6.uic.pyuic import generate
-from nipype.interfaces.utility import IdentityInterface
 import nipype.pipeline.engine as pe
-from nipype import Node, Function
-from abc import abstractmethod, ABC
 from bids.layout import BIDSLayout
-from datasets.bids_dataset import BidsDataset
-from workflows.preprocessing_workflows import \
-    denoise_mag_and_phase_in_complex_domain_workflow, \
-    motion_correction_mag_and_phase_workflow, create_brain_mask_workflow, \
-    register_image_workflow
-from utils.io import ExplicitPathDataSink
-import nipype.interfaces.fsl as fsl
-from nipype_utils import BidsRename, BidsOutputFormatter, BidsOutputWriter
-from workflows.preprocessing_workflows import preprocess_3depi_workflow
-from workflows.parameter_estimation_workflows import \
-    estimate_relaxation_3d_epi
+from nipype import Node
+from nipype.interfaces.utility import IdentityInterface
+from nipype.interfaces import fsl
+
+from nodes.io import BidsOutputWriter
+from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
+    STANDARDIZED_ENTITY_OVERRIDES_T1W, \
+    STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG, \
+    STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE, \
+    STANDARDIZED_ENTITY_OVERRIDES_B1_MAP, STANDARDIZED_ENTITY_OVERRIDES_B1_REF
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
+from workflows.parameter_estimation import \
+    estimate_relaxation_3d_epi
+from workflows.processing import preprocess_3depi_workflow, create_brain_mask
+from nodes.registration import create_default_ants_rigid_registration_node
 
 
 def assert_all_similar(values, tolerance=1e-9):
@@ -39,11 +33,9 @@ def assert_all_similar(values, tolerance=1e-9):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process a dataset with optional steps.")
+        description="Process 3D-EPI dataset.")
     parser.add_argument('-i', '--bids_root', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-d', '--derivatives', nargs='*', required=False,
-                        help='One or more derivatives directories to use.')
     parser.add_argument('-o', '--output_derivative_dir', required=True,
                         help='Path to the output derivatives folder.')
     parser.add_argument('--base_dir', default=os.getcwd(),
@@ -52,15 +44,12 @@ def main():
         '--preprocess_only', action='store_true', default=False,
         help="Preprocess the data only, without parameter estimation"
     )
-    parser.add_argument('--subject', default=None,
-                        help='Specify a subject to process (e.g., sub-01). If not provided, all subjects are processed.')
-    parser.add_argument('--session', default=None,
-                        help='Specify a session to process (e.g., ses-01). If not provided, all sessions are processed.')
-    parser.add_argument('--run', default=None,
-                        help='Specify a run to process (e.g., run-01). If not provided, all runs are processed.')
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
+    parser.add_argument('--subject', help='Process a specific subject.')
+    parser.add_argument('--session', help='Process a specific session.')
+    parser.add_argument('--run', help='Process a specific run.')
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
@@ -71,24 +60,24 @@ def main():
     )
 
     # Define the reusable run settings in a dictionary
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
+    run_settings = dict(plugin='MultiProc',
+                        plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
     layout = BIDSLayout(args.bids_root,
-                        derivatives=args.derivatives,
+                        derivatives=True,
                         validate=False)
-    inputs = []
-    subjects = layout.get_subjects()
-    # subjects = ["phy004"]
 
+    # collect data for each independent subject-session-run combination
+    inputs = []
+    subjects = [args.subject] if args.subject else layout.get_subjects()
     for subject in subjects:
-        sessions = layout.get_sessions(subject=subject)
-        if sessions:  # Only add subjects with existing sessions
+        sessions = [args.session] if args.session else layout.get_sessions(
+            subject=subject)
+        if sessions:
             for session in sessions:
-                runs = layout.get_runs(subject=subject, session=session)
+                runs = [args.run] if args.run else layout.get_runs(
+                    subject=subject, session=session)
 
                 if len(runs) == 0:
                     runs = [None]
@@ -102,8 +91,8 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        suffix="T1w",
-                        extension="nii.gz")
+                        **STANDARDIZED_ENTITY_OVERRIDES_T1W,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["t2w_mag_file"],
                      input_dict["t2w_mag_json_dict"]) = find_image_and_json(
@@ -111,9 +100,8 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        suffix="T2w",
-                        part="mag",
-                        extension="nii.gz")
+                        **STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["t2w_phase_file"],
                      input_dict["t2w_phase_json_dict"]) = find_image_and_json(
@@ -121,9 +109,8 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        suffix="T2w",
-                        part="phase",
-                        extension="nii.gz")
+                        **STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_map_file"],
                      input_dict["b1_map_json_dict"]) = find_image_and_json(
@@ -131,9 +118,8 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        acquisition="B1",
-                        suffix="B1Map",
-                        extension="nii.gz")
+                        **STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_anat_ref_file"],
                      input_dict["b1_anat_ref_json_dict"]) = find_image_and_json(
@@ -141,9 +127,8 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        acquisition="B1Ref",
-                        suffix="magnitude",
-                        extension="nii.gz")
+                        **STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     input_dict["echo_time"] = input_dict[
                         "t2w_mag_json_dict"]["EchoTime"]
@@ -156,10 +141,12 @@ def main():
 
                     inputs.append(input_dict)
 
-    wf = pe.Workflow(name="process_3d_epi_dataset")
+    # set up workflow
+    wf = pe.Workflow(name="process_3depi_dataset")
     wf.base_dir = args.base_dir
 
-    # set up bids input node
+    # create input node using entries in input_dict and
+    # use independent subject-session-run combinations as iterables
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
                       name='bids_input_node')
     keys = inputs[0].keys()
@@ -174,17 +161,31 @@ def main():
         ('b1_anat_ref_file', 'input_node.b1_anat_ref_file'),
         ('t2w_mag_file', 'input_node.magnitude_file'),
         ('t2w_phase_file', 'input_node.phase_file'),
-        ('t1w_file', 'input_node.t1w_file'),
+        # ('t1w_file', 'input_node.t1w_file'),
     ])])
 
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+    mag_first_volume_extractor = Node(fsl.ExtractROI(),
+                                      name="mag_first_volume_extractor")
+    mag_first_volume_extractor.inputs.t_min = 0
+    mag_first_volume_extractor.inputs.t_size = 1
+    wf.connect(preprocess_3depi_wf, "output_node.magnitude_file",
+               mag_first_volume_extractor, "in_file")
+
+    register_t1w_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
+                                          name="register_t1w_to_t2w")
+    wf.connect(mag_first_volume_extractor, "roi_file",
+               register_t1w_to_t2w, "fixed_image")
+    wf.connect(input_node, "t1w_file",
+               register_t1w_to_t2w, "moving_image")
+
+    create_brain_mask_wf = create_brain_mask()
+    wf.connect(register_t1w_to_t2w, "warped_image",
+               create_brain_mask_wf, "input_node.in_file")
+
 
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_writer")
     b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_map_file_writer.inputs.pattern = out_pattern
     b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
                                                       suffix="B1map",
                                                       desc="registered")
@@ -194,22 +195,20 @@ def main():
                b1_map_file_writer, "template_file")
 
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
-                                 name="b1_anat_ref_file_writer")
+                                      name="b1_anat_ref_file_writer")
     b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.pattern = out_pattern
     b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
-                                                      suffix="magnitude",
-                                                      desc="registered")
+                                                           suffix="magnitude",
+                                                           desc="registered")
     wf.connect(preprocess_3depi_wf, "output_node.b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "template_file")
 
     t2w_mag_file_writer = pe.MapNode(BidsOutputWriter(),
-                                 iterfield=['in_file', 'template_file'],
-                                 name="t2w_mag_file_writer")
+                                     iterfield=['in_file', 'template_file'],
+                                     name="t2w_mag_file_writer")
     t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_mag_file_writer.inputs.pattern = out_pattern
     t2w_mag_file_writer.inputs.entity_overrides = dict(desc="preproc")
     wf.connect(preprocess_3depi_wf, "output_node.magnitude_file",
                t2w_mag_file_writer, "in_file")
@@ -217,10 +216,9 @@ def main():
                t2w_mag_file_writer, "template_file")
 
     t2w_phase_file_writer = pe.MapNode(BidsOutputWriter(),
-                                 iterfield=['in_file', 'template_file'],
-                                 name="t2w_phase_file_writer")
+                                       iterfield=['in_file', 'template_file'],
+                                       name="t2w_phase_file_writer")
     t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_phase_file_writer.inputs.pattern = out_pattern
     t2w_phase_file_writer.inputs.entity_overrides = dict(desc="preproc")
     wf.connect(preprocess_3depi_wf, "output_node.phase_file",
                t2w_phase_file_writer, "in_file")
@@ -228,11 +226,12 @@ def main():
                t2w_phase_file_writer, "template_file")
 
     t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
-                                     name="t1w_reg_target_writer")
+                                    name="t1w_reg_target_writer")
     t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_reg_target_writer.inputs.pattern = out_pattern
-    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None, desc="preproc", acquisition="T1wRef")
-    wf.connect(preprocess_3depi_wf, "output_node.t1w_file",
+    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None,
+                                                         desc="preproc",
+                                                         acquisition="T1wRef")
+    wf.connect(register_t1w_to_t2w, "warped_image",
                t1w_reg_target_writer, "in_file")
     wf.connect(input_node, "t1w_file",
                t1w_reg_target_writer, "template_file")
@@ -240,19 +239,19 @@ def main():
     brain_mask_file_writer = pe.Node(BidsOutputWriter(),
                                      name="brain_mask_file_writer")
     brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
-    brain_mask_file_writer.inputs.pattern = out_pattern
     brain_mask_file_writer.inputs.entity_overrides = dict(part=None,
                                                           desc="brain",
                                                           suffix="mask",
                                                           acquisition=None)
-    wf.connect(preprocess_3depi_wf, "output_node.brain_mask_file",
+    wf.connect(create_brain_mask_wf, "output_node.out_file",
                brain_mask_file_writer, "in_file")
-    wf.connect(input_node, "t2w_mag_file",
+    wf.connect(input_node, "t1w_file",
                brain_mask_file_writer, "template_file")
 
     if not args.preprocess_only:
-        estimate_relaxation_3d_epi_wf = estimate_relaxation_3d_epi()
 
+        # estimate relaxation parameter maps
+        estimate_relaxation_3d_epi_wf = estimate_relaxation_3d_epi()
         wf.connect([(preprocess_3depi_wf, estimate_relaxation_3d_epi_wf, [
             ('output_node.b1_map_file', 'input_node.b1_map_file'),
             ('output_node.magnitude_file', 'input_node.t2w_magnitude_file'),
@@ -265,7 +264,7 @@ def main():
             ('flip_angle', 'input_node.flip_angle')
         ])])
 
-        # write output files
+        # write relaxation parameter map files
         out_maps = dict(
             R1map="output_node.r1_map_file",
             R2map="output_node.r2_map_file",
@@ -276,7 +275,6 @@ def main():
             file_writer = pe.Node(BidsOutputWriter(),
                                   name="file_writer_{}".format(out_map_suffix))
             file_writer.inputs.output_dir = args.output_derivative_dir
-            file_writer.inputs.pattern = out_pattern
             file_writer.inputs.entity_overrides = dict(part=None,
                                                        suffix=out_map_suffix,
                                                        acquisition=None)

@@ -16,11 +16,9 @@ from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process a dataset with optional steps.")
+        description="Prepare 3D-EPI dataset from UKE, Hamburg.")
     parser.add_argument('-i', '--bids_root', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-d', '--derivatives', nargs='+', required=True,
-                        help='One or more derivatives directories to use.')
     parser.add_argument('-o', '--output_derivative_dir', required=True,
                         help='Path to the output derivatives folder.')
     parser.add_argument('--base_dir', default=os.getcwd(),
@@ -28,6 +26,9 @@ def main():
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
+    parser.add_argument('--subject', help='Process a specific subject.')
+    parser.add_argument('--session', help='Process a specific session.')
+    parser.add_argument('--run', help='Process a specific run.')
     args = parser.parse_args()
 
     # Ensure `derivatives` is a list with one or more entries
@@ -51,9 +52,9 @@ def main():
     layout = BIDSLayout(args.bids_root,
                         derivatives=args.derivatives,
                         validate=False)
+
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy004"]
 
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
@@ -80,10 +81,12 @@ def main():
                     runs = [None]
 
                 for run in runs:
-                    input_dict = dict()
-                    input_dict["subject"] = subject
-                    input_dict["session"] = session
-                    input_dict["run"] = run
+
+                    input_dict = dict(
+                        subject=subject,
+                        session=session,
+                        run=run
+                    )
 
                     (input_dict["t1w_file"],
                      input_dict["t1w_json_dict"]) = find_image_and_json(
@@ -198,8 +201,6 @@ def main():
                         rf_phase_increments
 
                     inputs.append(input_dict)
-
-    print(inputs)
 
     # set up bids input node
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),

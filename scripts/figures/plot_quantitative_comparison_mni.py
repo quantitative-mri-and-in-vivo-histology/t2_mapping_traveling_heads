@@ -86,8 +86,8 @@ if __name__ == "__main__":
                 f"  Collecting data for subject: {subject_run_combination['subject']}, run: {subject_run_combination.get('run', 'None')}")
 
             # Load probability segmentation and T2 map files
-            cortical_probseg_file = "../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz"
-            subcortical_probseg_file = "../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz"
+            cortical_probseg_file = "../../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz"
+            subcortical_probseg_file = "../../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz"
 
             t2_map_files = layout.get(**subject_run_combination, suffix="T2Map",
                                       extension="nii.gz")

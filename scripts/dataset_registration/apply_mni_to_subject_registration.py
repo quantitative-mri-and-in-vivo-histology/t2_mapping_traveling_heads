@@ -102,13 +102,15 @@ def main():
     }
 
     sub_cortical_prob_map_file = os.path.abspath(
-        "../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz")
+        "../../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz")
     cortical_prob_map_file = os.path.abspath(
-        "../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz")
+        "../../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz")
 
-    white_matter_probseg_file = os.path.abspath('../data/atlases/white_matter.nii.gz')
-    gray_matter_probseg_file = os.path.abspath('../data/atlases/gray_matter.nii.gz')
-    csf_probseg_file = os.path.abspath('../data/atlases/csf.nii.gz')
+    white_matter_probseg_file = os.path.abspath(
+        '../../data/atlases/white_matter.nii.gz')
+    gray_matter_probseg_file = os.path.abspath(
+        '../../data/atlases/gray_matter.nii.gz')
+    csf_probseg_file = os.path.abspath('../../data/atlases/csf.nii.gz')
 
     atlases = [sub_cortical_prob_map_file,
                cortical_prob_map_file,
@@ -131,7 +133,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy004"]
+    # subjects = ["phy004"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
