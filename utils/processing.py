@@ -1,3 +1,5 @@
+import math
+
 
 def compute_t2_t1_amplitude_maps(magnitude_file,
                                  phase_file,
@@ -114,3 +116,62 @@ def correct_b1_map(b1_map_file, b0_map_file,
 
     return b1_output_filename
 
+
+def create_qi_jsr_config(t1w_metadata_dicts, t2w_metadata_dicts):
+
+    def assert_all_similar(values, tolerance=1e-9):
+        # Ensure all values in the list are similar within the given tolerance
+        first_value = values[0]
+        assert all(
+            math.isclose(value, first_value, rel_tol=tolerance,
+                         abs_tol=tolerance)
+            for value in values), \
+            "Not all values are similar"
+
+    qi_jsr_config_dict = dict()
+
+    # collect T1w metadata
+    t1w_flip_angles = []
+    t1w_repetition_times = []
+    t1w_echo_times = []
+    for t1w_metadata_dict in t1w_metadata_dicts:
+        t1w_flip_angles.append(t1w_metadata_dict['FlipAngle'])
+        t1w_repetition_times.append(
+            t1w_metadata_dict['RepetitionTimeExcitation'])
+        t1w_echo_times.append(
+            t1w_metadata_dict['EchoTime'])
+
+    # pulse duration and repetition time need to be consistent across T2w images
+    assert_all_similar(t1w_repetition_times)
+    assert_all_similar(t1w_echo_times)
+
+    # create SPGR config entry
+    qi_jsr_config_dict["SPGR"] = dict(
+        TR=t1w_repetition_times[0],
+        TE=t1w_echo_times[0],
+        FA=t1w_flip_angles)
+
+    # collect T2w metadata
+    t2w_rf_phase_increments = []
+    t2w_flip_angles = []
+    t2w_rf_pulse_durations = []
+    t2w_repetition_times = []
+    for t2w_metadata_dict in t2w_metadata_dicts:
+        t2w_rf_phase_increments.append(t2w_metadata_dict['RfPhaseIncrement'])
+        t2w_flip_angles.append(t2w_metadata_dict['FlipAngle'])
+        t2w_rf_pulse_durations.append(t2w_metadata_dict['RfPulseDuration'])
+        t2w_repetition_times.append(
+            t2w_metadata_dict['RepetitionTimeExcitation'])
+
+    # pulse duration and repetition time need to be consistent across T2w images
+    assert_all_similar(t2w_rf_pulse_durations)
+    assert_all_similar(t2w_repetition_times)
+
+    # create SSFP config entry
+    qi_jsr_config_dict["SSFP"] = dict(
+        TR=t2w_repetition_times[0],
+        Trf=t2w_rf_pulse_durations[0],
+        FA=t2w_flip_angles,
+        PhaseInc=t2w_rf_phase_increments)
+
+    return qi_jsr_config_dict

@@ -1,21 +1,14 @@
+import json
 import os
 import shutil
-import json
-from nipype.interfaces.io import DataSink
-from nipype.interfaces.base import BaseInterfaceInputSpec, TraitedSpec, File
-import os
-import json
-from os import path
-from pathlib import Path
+
 from bids.layout import BIDSLayout
-from nipype.interfaces.base import BaseInterface, BaseInterfaceInputSpec
-from nipype.utils.filemanip import copyfile
-from nipype.interfaces.base import File, TraitedSpec, traits, isdefined
-from nipype.interfaces.fsl.base import FSLCommand, FSLCommandInputSpec
 from nipype.interfaces.base import (
-    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, traits, isdefined
+    BaseInterfaceInputSpec, TraitedSpec, File, traits, Directory
 )
-import os
+from nipype.interfaces.io import DataSink
+from nipype.utils.filemanip import copyfile
+from nipype.interfaces.base import isdefined
 from utils.bids_config import DEFAULT_BIDS_OUTPUT_PATTERN
 
 
@@ -49,6 +42,9 @@ class BidsOutputWriterOutputSpec(TraitedSpec):
 class BidsOutputWriter(DataSink):
     input_spec = BidsOutputWriterInputSpec
     output_spec = BidsOutputWriterOutputSpec
+
+    def __init__(self, **kwargs):
+        super(BidsOutputWriter, self).__init__(**kwargs)
 
     def _run_interface(self, runtime):
         # Load BIDS layout and parse file entities
@@ -92,4 +88,34 @@ class BidsOutputWriter(DataSink):
         if self.inputs.json_dict:
             outputs[
                 'out_json'] = self._out_json  # Return the JSON filename if generated
+        return outputs
+
+
+class ExplicitDataSinkInputSpec(BaseInterfaceInputSpec):
+    in_file = File(exists=True, desc="Input BIDS file to rename", mandatory=True)
+    filename = File(desc="Filename for the output file", mandatory=False)  # Add filename to input spec
+    output_dir = Directory(desc="Output directory", mandatory=True)  # Add filename to input spec
+
+class ExplicitDataSink(DataSink):
+
+    input_spec = ExplicitDataSinkInputSpec
+
+    def _run_interface(self, runtime):
+        # Set directory and filename from input spec or default to the original file
+        out_file = os.path.join(self.inputs.output_dir, self.inputs.filename)
+
+        # Ensure the target directory exists
+        os.makedirs(self.inputs.output_dir, exist_ok=True)
+
+        # Move or copy the file to the desired location
+        shutil.copy(self.inputs.in_file, out_file)
+
+        # Store the output image filename
+        self._out_file = out_file
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['out_file'] = self._out_file
         return outputs

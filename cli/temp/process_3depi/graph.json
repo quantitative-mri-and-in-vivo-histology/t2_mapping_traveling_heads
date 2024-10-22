@@ -1,0 +1,177 @@
+[
+    {
+        "group": 1,
+        "imports": [],
+        "name": "00_convert_mag_and_phase_to_complex",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "00_convert_mag_and_phase_to_complex"
+        ],
+        "name": "01_dwidenoise",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "01_dwidenoise"
+        ],
+        "name": "02_convert_complex_to_mag_and_phase",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "03_mcflirt",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "04_convert_mag_and_phase_to_complex",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "03_mcflirt"
+        ],
+        "name": "05_get_mcflirt_trans_dir",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "04_convert_mag_and_phase_to_complex"
+        ],
+        "name": "06_convert_complex_to_real_cartesian",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "06_convert_complex_to_real_cartesian",
+            "05_get_mcflirt_trans_dir",
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "07_applyxfm4d_to_real",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "06_convert_complex_to_real_cartesian",
+            "05_get_mcflirt_trans_dir",
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "08_applyxfm4d_to_imag",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "07_applyxfm4d_to_real",
+            "08_applyxfm4d_to_imag"
+        ],
+        "name": "09_complex_conv_moco",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "09_complex_conv_moco"
+        ],
+        "name": "10_convert_mag_and_phase_to_complex_post_moco",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "10_convert_mag_and_phase_to_complex_post_moco",
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "11_copy_geometry_mag",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "10_convert_mag_and_phase_to_complex_post_moco",
+            "02_convert_complex_to_mag_and_phase"
+        ],
+        "name": "12_copy_geometry_phase",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "11_copy_geometry_mag",
+            "12_copy_geometry_phase"
+        ],
+        "name": "13_subtract_background_phase",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "13_subtract_background_phase"
+        ],
+        "name": "14_mag_first_volume_extractor",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "13_subtract_background_phase"
+        ],
+        "name": "15_t1w_ref_image_writer",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "13_subtract_background_phase"
+        ],
+        "name": "16_t2w_phase_writer",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "14_mag_first_volume_extractor"
+        ],
+        "name": "17_register_b1_anat_ref_to_t2w",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "14_mag_first_volume_extractor",
+            "17_register_b1_anat_ref_to_t2w"
+        ],
+        "name": "18_apply_trans_to_b1_map",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "17_register_b1_anat_ref_to_t2w"
+        ],
+        "name": "19_b1_anat_ref_writer",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "18_apply_trans_to_b1_map"
+        ],
+        "name": "20_b1_map_writer",
+        "size": 1
+    }
+]

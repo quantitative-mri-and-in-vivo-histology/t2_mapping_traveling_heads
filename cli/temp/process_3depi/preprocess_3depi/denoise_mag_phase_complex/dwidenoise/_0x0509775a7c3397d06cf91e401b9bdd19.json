@@ -1,0 +1,23 @@
+[
+    [
+        "extent",
+        [
+            3,
+            3,
+            3
+        ]
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/denoise_mag_phase_complex/convert_mag_and_phase_to_complex/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx.nii.gz",
+            "4409c2f37fe7e7f5235f63e32fa4e9e6"
+        ]
+    ],
+    [
+        "needed_outputs",
+        [
+            "out_file"
+        ]
+    ]
+]

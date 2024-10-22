@@ -6,10 +6,11 @@ import os
 import nipype.pipeline.engine as pe
 from bids.layout import BIDSLayout
 from nipype import Node
-from nipype.interfaces.utility import IdentityInterface
 from nipype.interfaces import fsl
+from nipype.interfaces.utility import IdentityInterface
 
 from nodes.io import BidsOutputWriter
+from nodes.registration import create_default_ants_rigid_registration_node
 from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
     STANDARDIZED_ENTITY_OVERRIDES_T1W, \
     STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG, \
@@ -18,8 +19,7 @@ from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 from workflows.parameter_estimation import \
     estimate_relaxation_3d_epi
-from workflows.processing import preprocess_3depi_workflow, create_brain_mask
-from nodes.registration import create_default_ants_rigid_registration_node
+from workflows.processing import preprocess_3depi, create_brain_mask
 
 
 def assert_all_similar(values, tolerance=1e-9):
@@ -154,14 +154,13 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
-    preprocess_3depi_wf = preprocess_3depi_workflow()
+    preprocess_3depi_wf = preprocess_3depi()
 
     wf.connect([(input_node, preprocess_3depi_wf, [
         ('b1_map_file', 'input_node.b1_map_file'),
         ('b1_anat_ref_file', 'input_node.b1_anat_ref_file'),
         ('t2w_mag_file', 'input_node.magnitude_file'),
         ('t2w_phase_file', 'input_node.phase_file'),
-        # ('t1w_file', 'input_node.t1w_file'),
     ])])
 
     mag_first_volume_extractor = Node(fsl.ExtractROI(),

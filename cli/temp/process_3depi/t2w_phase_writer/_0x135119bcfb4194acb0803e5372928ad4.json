@@ -1,0 +1,17 @@
+[
+    [
+        "filename",
+        "T2w_phase_preprocessed.nii.gz"
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/subtract_background_phase/phase.nii.gz",
+            "4a74a658bbbaaba288db9eeaac4674a5"
+        ]
+    ],
+    [
+        "output_dir",
+        "/home/laurin/workspace/t2_cli_tests/process_3depi/outputs"
+    ]
+]

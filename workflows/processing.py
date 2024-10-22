@@ -159,33 +159,6 @@ def motion_correction_mag_and_phase_workflow(base_dir=os.getcwd(),
     return workflow
 
 
-def create_brain_mask_workflow(base_dir=os.getcwd(), name="create_brain_mask"):
-    workflow = pe.Workflow(name=name)
-    workflow.base_dir = base_dir
-    input_node = pe.Node(interface=util.IdentityInterface(
-        fields=['in_file']),
-        name='input_node')
-    output_node = pe.Node(interface=util.IdentityInterface(
-        fields=['out_file']),
-        name='output_node')
-
-    first_volume_extractor = Node(fsl.ExtractROI(),
-                                  name="first_volume_extractor")
-    first_volume_extractor.inputs.t_min = 0
-    first_volume_extractor.inputs.t_size = 1
-    bet_node = Node(fsl.BET(), name="bet")
-    bet_node.inputs.robust = True
-    bet_node.inputs.mask = True
-
-    workflow.connect(input_node, "in_file",
-                     first_volume_extractor, "in_file")
-    workflow.connect(first_volume_extractor, "roi_file",
-                     bet_node, "in_file")
-    workflow.connect(bet_node, "mask_file",
-                     output_node, "out_file")
-    return workflow
-
-
 def register_image_workflow(base_dir=os.getcwd(), name="register_image",
                             apply_brain_masking=False):
     workflow = pe.Workflow(name=name)
@@ -405,8 +378,8 @@ def preprocess_ssfp_spgr(base_dir=os.getcwd(),
     return wf
 
 
-def preprocess_3depi_workflow(base_dir=os.getcwd(),
-                              name="preprocess_3depi_workflow"):
+def preprocess_3depi(base_dir=os.getcwd(),
+                     name="preprocess_3depi"):
     wf = pe.Workflow(name=name)
     wf.base_dir = base_dir
 
@@ -458,26 +431,12 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
     wf.connect(subtract_background_phase_node, "magnitude_file",
                mag_first_volume_extractor, "in_file")
 
-    # t1w_first_volume_extractor = Node(fsl.ExtractROI(),
-    #                                   name="t1w_first_volume_extractor")
-    # t1w_first_volume_extractor.inputs.t_min = 0
-    # t1w_first_volume_extractor.inputs.t_size = 1
-    # wf.connect(input_node, "t1w_file",
-    #            t1w_first_volume_extractor, "in_file")
-
     register_b1_anat_ref_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
                                           name="register_b1_anat_ref_to_t2w")
     wf.connect(mag_first_volume_extractor, "roi_file",
                register_b1_anat_ref_to_t2w, "fixed_image")
     wf.connect(input_node, "b1_anat_ref_file",
                register_b1_anat_ref_to_t2w, "moving_image")
-
-    # register_t1w_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
-    #                               name="register_t1w_to_t2w")
-    # wf.connect(mag_first_volume_extractor, "roi_file",
-    #            register_t1w_to_t2w, "fixed_image")
-    # wf.connect(t1w_first_volume_extractor, "roi_file",
-    #            register_t1w_to_t2w, "moving_image")
 
     apply_trans_to_b1_map = pe.Node(ants.ApplyTransforms(),
                                     name="apply_trans_to_b1_map")
@@ -498,8 +457,6 @@ def preprocess_3depi_workflow(base_dir=os.getcwd(),
                output_node, "b1_map_file")
     wf.connect(register_b1_anat_ref_to_t2w, "warped_image",
                output_node, "b1_anat_ref_file")
-    # wf.connect(register_t1w_to_t2w, "warped_image",
-    #            output_node, "t1w_file")
 
     return wf
 

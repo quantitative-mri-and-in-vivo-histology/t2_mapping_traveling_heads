@@ -11,7 +11,7 @@ from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
 import nipype.interfaces.ants as ants
 import nipype.interfaces.mrtrix3 as mrtrix3
-from nipype_utils import BidsOutputWriter
+from nodes.io import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 from nipype.interfaces.utility import Select
 from nipype.interfaces.utility import Merge
@@ -105,6 +105,10 @@ def main():
         "../../data/atlases/HarvardOxford-sub-prob-1mm.nii.gz")
     cortical_prob_map_file = os.path.abspath(
         "../../data/atlases/HarvardOxford-cort-prob-1mm.nii.gz")
+    cortical_left_prob_map_file = os.path.abspath(
+        "../../data/atlases/HarvardOxford-cort-left-prob-1mm.nii.gz")
+    cortical_right_prob_map_file = os.path.abspath(
+        "../../data/atlases/HarvardOxford-cort-right-prob-1mm.nii.gz")
 
     white_matter_probseg_file = os.path.abspath(
         '../../data/atlases/white_matter.nii.gz')
@@ -114,6 +118,8 @@ def main():
 
     atlases = [sub_cortical_prob_map_file,
                cortical_prob_map_file,
+               cortical_left_prob_map_file,
+               cortical_right_prob_map_file,
                white_matter_probseg_file,
                gray_matter_probseg_file,
                csf_probseg_file]
@@ -121,6 +127,8 @@ def main():
     entity_overrides = [
         dict(suffix="probseg", desc="subcortical", acquisition=None),
         dict(suffix="probseg", desc="cortical", acquisition=None),
+        dict(suffix="probseg", desc="corticalLeft", acquisition=None),
+        dict(suffix="probseg", desc="corticalRight", acquisition=None),
         dict(suffix="probseg", desc="wm", acquisition=None),
         dict(suffix="probseg", desc="gm", acquisition=None),
         dict(suffix="probseg", desc="csf", acquisition=None)

@@ -1,0 +1,94 @@
+{
+    "groups": [
+        {
+            "name": "Group_00001",
+            "procs": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6
+            ],
+            "total": 7
+        }
+    ],
+    "links": [
+        {
+            "source": 0,
+            "target": 1,
+            "value": 1
+        },
+        {
+            "source": 1,
+            "target": 4,
+            "value": 1
+        },
+        {
+            "source": 0,
+            "target": 2,
+            "value": 1
+        },
+        {
+            "source": 2,
+            "target": 5,
+            "value": 1
+        },
+        {
+            "source": 0,
+            "target": 3,
+            "value": 1
+        },
+        {
+            "source": 3,
+            "target": 6,
+            "value": 1
+        }
+    ],
+    "maxN": 7,
+    "nodes": [
+        {
+            "group": 1,
+            "name": "0_register_t1w",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/register_t1w/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/register_t1w/result_register_t1w.pklz"
+        },
+        {
+            "group": 1,
+            "name": "1_select_forward_affine_node",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_forward_affine_node/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_forward_affine_node/result_select_forward_affine_node.pklz"
+        },
+        {
+            "group": 1,
+            "name": "2_select_warp_node",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_warp_node/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_warp_node/result_select_warp_node.pklz"
+        },
+        {
+            "group": 1,
+            "name": "3_select_reverse_warp_node",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_reverse_warp_node/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/select_reverse_warp_node/result_select_reverse_warp_node.pklz"
+        },
+        {
+            "group": 1,
+            "name": "4_forward_affine_transform_writer",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/forward_affine_transform_writer/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/forward_affine_transform_writer/result_forward_affine_transform_writer.pklz"
+        },
+        {
+            "group": 1,
+            "name": "5_forward_warp_transform_writer",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/forward_warp_transform_writer/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/forward_warp_transform_writer/result_forward_warp_transform_writer.pklz"
+        },
+        {
+            "group": 1,
+            "name": "6_reverse_warp_transform_writer",
+            "report": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/reverse_warp_transform_writer/_report/report.rst",
+            "result": "/fd63fbaba21e7143e34b0152907f21a90ae3792c/reverse_warp_transform_writer/result_reverse_warp_transform_writer.pklz"
+        }
+    ]
+}

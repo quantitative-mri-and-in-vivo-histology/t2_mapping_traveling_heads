@@ -1,0 +1,56 @@
+[
+    {
+        "group": 1,
+        "imports": [],
+        "name": "0_register_t1w",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "0_register_t1w"
+        ],
+        "name": "1_select_forward_affine_node",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "0_register_t1w"
+        ],
+        "name": "2_select_warp_node",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "0_register_t1w"
+        ],
+        "name": "3_select_reverse_warp_node",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "1_select_forward_affine_node"
+        ],
+        "name": "4_forward_affine_transform_writer",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "2_select_warp_node"
+        ],
+        "name": "5_forward_warp_transform_writer",
+        "size": 1
+    },
+    {
+        "group": 1,
+        "imports": [
+            "3_select_reverse_warp_node"
+        ],
+        "name": "6_reverse_warp_transform_writer",
+        "size": 1
+    }
+]

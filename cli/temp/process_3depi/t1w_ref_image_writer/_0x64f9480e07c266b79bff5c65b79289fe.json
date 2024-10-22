@@ -1,0 +1,17 @@
+[
+    [
+        "filename",
+        "T2w_mag_preprocessed.nii.gz"
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/subtract_background_phase/magnitude.nii.gz",
+            "f5c0e6187c974e7b913f5513dc5d0d30"
+        ]
+    ],
+    [
+        "output_dir",
+        "/home/laurin/workspace/t2_cli_tests/process_3depi/outputs"
+    ]
+]

@@ -94,3 +94,37 @@ def create_output_folder(subject, session, datatype):
     if datatype is not None:
         folder = "{}/{}".format(folder, datatype)
     return folder
+
+
+def get_nifti_fileparts(file_path):
+    """
+    Splits a NIfTI file path into its directory, basename (filename without extension), and extension (.nii or .nii.gz).
+    Throws an error if the file does not have a valid NIfTI extension.
+
+    Parameters:
+    - file_path: Full path to the NIfTI file (.nii or .nii.gz)
+
+    Returns:
+    - directory: The directory of the file
+    - basename: The filename without the extension
+    - extension: The extension of the file (.nii or .nii.gz)
+
+    Raises:
+    - ValueError: If the file does not have a .nii or .nii.gz extension
+    """
+    directory = os.path.dirname(file_path)
+
+    if file_path.endswith('.nii.gz'):
+        basename, _ = os.path.splitext(
+            os.path.splitext(os.path.basename(file_path))[0])
+        extension = '.nii.gz'
+    elif file_path.endswith('.nii'):
+        basename, extension = os.path.splitext(os.path.basename(file_path))
+    else:
+        raise ValueError(
+            f"Error: {file_path} is not a valid NIfTI file (must end with .nii or .nii.gz).")
+
+    return directory, basename, extension
+
+
+

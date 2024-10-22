@@ -8,7 +8,7 @@ from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
 import nipype.interfaces.ants as ants
-from nipype_utils import BidsOutputWriter
+from nodes.io import  BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 from nipype.interfaces.utility import Select
 

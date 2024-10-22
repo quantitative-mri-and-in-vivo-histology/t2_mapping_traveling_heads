@@ -1,0 +1,23 @@
+[
+    [
+        "dest_file",
+        "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/convert_mag_and_phase_to_complex_post_moco/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_real_warp4D_cplx_phase.nii.gz"
+    ],
+    [
+        "in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/denoise_mag_phase_complex/convert_complex_to_mag_and_phase/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_phase.nii.gz",
+            "02c6a341c0fe16abc54cc17da8b9400b"
+        ]
+    ],
+    [
+        "output_type",
+        "NIFTI_GZ"
+    ],
+    [
+        "needed_outputs",
+        [
+            "out_file"
+        ]
+    ]
+]

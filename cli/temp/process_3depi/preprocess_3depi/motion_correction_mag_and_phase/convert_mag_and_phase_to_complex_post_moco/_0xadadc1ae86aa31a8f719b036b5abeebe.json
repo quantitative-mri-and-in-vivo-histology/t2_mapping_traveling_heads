@@ -1,0 +1,24 @@
+[
+    [
+        "complex_in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/complex_conv_moco/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_real_warp4D_cplx.nii.gz",
+            "425be86c31292db12223cf21097a02f5"
+        ]
+    ],
+    [
+        "output_type",
+        "NIFTI_GZ"
+    ],
+    [
+        "real_polar",
+        true
+    ],
+    [
+        "needed_outputs",
+        [
+            "magnitude_out_file",
+            "phase_out_file"
+        ]
+    ]
+]

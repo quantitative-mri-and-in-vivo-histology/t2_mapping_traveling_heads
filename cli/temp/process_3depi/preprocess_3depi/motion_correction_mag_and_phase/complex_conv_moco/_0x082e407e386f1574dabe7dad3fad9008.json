@@ -1,0 +1,30 @@
+[
+    [
+        "complex_cartesian",
+        true
+    ],
+    [
+        "imaginary_in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/applyxfm4d_to_imag/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_imag_warp4D.nii.gz",
+            "0857d9e6f457b566a48e82a128a8c429"
+        ]
+    ],
+    [
+        "output_type",
+        "NIFTI_GZ"
+    ],
+    [
+        "real_in_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/applyxfm4d_to_real/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_real_warp4D.nii.gz",
+            "5ae9b44dfcd356ffa85a66d6e2e4da0b"
+        ]
+    ],
+    [
+        "needed_outputs",
+        [
+            "complex_out_file"
+        ]
+    ]
+]

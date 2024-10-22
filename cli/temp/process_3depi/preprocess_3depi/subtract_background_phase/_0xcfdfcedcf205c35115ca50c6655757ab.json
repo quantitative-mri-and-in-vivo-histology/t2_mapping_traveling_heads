@@ -1,0 +1,27 @@
+[
+    [
+        "function_str",
+        "def subtract_background_phase(magnitude_file, phase_file):\n    import nibabel as nib\n    import numpy as np\n    import os\n\n    base_dir = os.getcwd()\n    mag_nib = nib.load(magnitude_file)\n    phase_nib = nib.load(phase_file)\n    mag = mag_nib.get_fdata()\n    phase = phase_nib.get_fdata()\n\n    com = mag * np.exp(1.0j * phase)\n    hip = com[..., 1::2] * np.conj(com[..., 0::2])\n\n    phase_bg_sub = np.angle(hip) / 2.0\n    mag_bg_sub = np.sqrt(np.abs(hip))\n\n    phase_bg_sub_nii = nib.Nifti1Image(phase_bg_sub, phase_nib.affine,\n                                       phase_nib.header)\n    mag_bg_sub_nii = nib.Nifti1Image(mag_bg_sub, mag_nib.affine,\n                                     mag_nib.header)\n\n    magnitude_out_file = os.path.join(base_dir,\n                                      \"{}{}\".format(\"magnitude\", \".nii.gz\"))\n    phase_out_file = os.path.join(base_dir,\n                                  \"{}{}\".format(\"phase\", \".nii.gz\"))\n\n    nib.save(mag_bg_sub_nii, magnitude_out_file)\n    nib.save(phase_bg_sub_nii, phase_out_file)\n\n    return magnitude_out_file, phase_out_file\n"
+    ],
+    [
+        "magnitude_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/copy_geometry_mag/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_real_warp4D_cplx_mag.nii.gz",
+            "6af4fbdf94c814b436c3b81a605ed75f"
+        ]
+    ],
+    [
+        "phase_file",
+        [
+            "/home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/motion_correction_mag_and_phase/copy_geometry_phase/sub-phy002_ses-001_acq-dznebnep3d_part-mag_T2w_cplx_denoised_mag_cplx_real_warp4D_cplx_phase.nii.gz",
+            "e6ed89be1983578792b101c57ecddab3"
+        ]
+    ],
+    [
+        "needed_outputs",
+        [
+            "magnitude_file",
+            "phase_file"
+        ]
+    ]
+]
