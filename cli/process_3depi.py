@@ -47,7 +47,7 @@ class CreateDummyMask(BaseInterface):
                                                 f"{basename.split('.')[0]}_dummy_mask.nii.gz")
 
         # Save the mask to a new NIfTI file
-        mask_img = nib.Nifti1Image(mask_data, img.affine)
+        mask_img = nib.Nifti1Image(mask_data, img.affine, img.header)
         nib.save(mask_img, self.inputs.out_file)
 
         return runtime
@@ -83,18 +83,6 @@ def main():
         help="B1 anatomical reference file."
     )
     parser.add_argument(
-        '--rf_phase_increments',
-        required=True,
-        nargs='+',
-        help="RF phase increments. Provide only positive RF phase increments, e.g.,\n"
-             "'--rf_phase_increments rf_phase_inc1 rf_phase_inc2 ... rf_phase_incN'."
-             "T2w magnitude image and files are expected to have\n"
-             "2*len(rf_phase_increments) along the fourth dimension with\n"
-             "elements ordered as:\n"
-             "[+rf_phase_inc1, -rf_phase_inc1, +rf_phase_inc2, -rf_phase_inc2,\n"
-             "+rf_phase_incN, -rf_phase_incN]"
-    )
-    parser.add_argument(
         '--t1w',
         required=False,
         default=None,
@@ -121,6 +109,19 @@ def main():
         default=None,
         help="Flip angle in degrees. If not set, it will be determined from\n"
              "'FlipAngle' in JSON metadata."
+    )
+    parser.add_argument(
+        '--rf_phase_increments',
+        required=False,
+        default=None,
+        nargs='+',
+        help="RF phase increments. Provide only positive RF phase increments, e.g.,\n"
+             "'--rf_phase_increments rf_phase_inc1 rf_phase_inc2 ... rf_phase_incN'."
+             "T2w magnitude image and files are expected to have\n"
+             "2*len(rf_phase_increments) along the fourth dimension with\n"
+             "elements ordered as:\n"
+             "[+rf_phase_inc1, -rf_phase_inc1, +rf_phase_inc2, -rf_phase_inc2,\n"
+             "+rf_phase_incN, -rf_phase_incN]"
     )
     parser.add_argument(
         '--output_dir',
@@ -193,6 +194,18 @@ def main():
             raise ValueError(
                 f"Error: Expected JSON metadata file '{t2w_mag_json_file}' with 'FlipAngle' set.")
 
+    # extract flip angle from arguments or JSON metadata
+    rf_phase_increments = args.rf_phase_increments
+    if rf_phase_increments is None:
+        print(f"--rf_phase_increments not specified. Trying to infer from metadata.")
+        rf_phase_increments = t2w_mag_json_dict.get("RfPhaseIncrement", None)
+        if rf_phase_increments is not None:
+            print(
+                f"Found 'RfPhaseIncrement' in JSON metadata. Value: {rf_phase_increments} degrees.")
+        else:
+            raise ValueError(
+                f"Error: Expected JSON metadata file '{t2w_mag_json_file}' with 'RfPhaseIncrement' set.")
+
     if args.t1w is not None:
         print(
             f"--t1w specified. Will use {args.t1w} for brain mask extraction.")
@@ -202,7 +215,7 @@ def main():
     t2w_mag_nib = nib.load(args.t2w_mag)
     t2w_mag_image = t2w_mag_nib.get_fdata()
 
-    if t2w_mag_image.shape[3] != 2 * len(args.rf_phase_increments):
+    if t2w_mag_image.shape[3] != 2 * len(rf_phase_increments):
         raise ValueError(
             f"Error: fourth dimension of T2w image to have 2 times the number "
             f"elements as in rf_phase_increments. T2w shape: {t2w_mag_image.shape}, "
