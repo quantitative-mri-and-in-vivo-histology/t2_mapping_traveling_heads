@@ -8,7 +8,7 @@ from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
 import nipype.interfaces.ants as ants
-from nipype_utils import BidsOutputWriter
+from nodes.io import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 from nipype.interfaces.utility import Select
 from nipype.interfaces.utility import Merge
@@ -60,7 +60,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy004"]
+    # subjects = ["phy004"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions

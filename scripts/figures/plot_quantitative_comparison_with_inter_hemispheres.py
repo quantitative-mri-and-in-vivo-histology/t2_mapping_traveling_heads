@@ -19,7 +19,7 @@ import numpy as np
 
 if __name__ == "__main__":
 
-    out_dir = "../../data/figures/qualitative"
+    out_dir = "../../data/figures/quantitative"
     os.makedirs(out_dir, exist_ok=True)
 
     # Filepath for storing the data
@@ -57,17 +57,18 @@ if __name__ == "__main__":
 
     dataset_dirs = [
         "/media/laurin/Elements/Travel_Head_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",
+        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_dzne",
         "/media/laurin/Elements/Travel_Head_Study/clean/results/London_Kings_Vida_3T",
         "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_ssfp"
     ]
-
     dataset_names = [
         "3D-EPI (Reference)",
+        "3D-EPI (Prisma)",
         "SSFP (Reference)",
-        "SSFP (Prisma)",
+        "SSFP (Prisma)"
     ]
 
-    regenerate_data = False
+    regenerate_data = True
 
     if regenerate_data:
 

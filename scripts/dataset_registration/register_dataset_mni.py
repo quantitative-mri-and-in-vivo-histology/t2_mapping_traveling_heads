@@ -59,7 +59,7 @@ def main():
 
     inputs = []
     subjects = layout.get_subjects()
-    subjects = ["phy004"]
+    # subjects = ["phy004"]
     for subject in subjects:
         sessions = layout.get_sessions(subject=subject)
         if sessions:  # Only add subjects with existing sessions
@@ -167,7 +167,7 @@ def main():
     ants_reg_params = dict(
         dimension=3,  # 3D registration
         output_transform_prefix='output_prefix_',  # Prefix for output files
-        transforms=['Rigid', 'Affine', 'BSplineSyN'],  # Transformation types
+        transforms=['Rigid', 'Affine', 'SyN'],  # Transformation types
         transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
         # Parameters for each transform
         metric=['MI', 'MI', 'CC'],

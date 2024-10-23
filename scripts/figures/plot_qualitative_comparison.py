@@ -1,19 +1,9 @@
-import argparse
 import os
-import multiprocessing
-from nipype import Workflow, Node, Function
-from nipype.interfaces.utility import IdentityInterface
-from nipype.interfaces.fsl import Info
-from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
-import nipype.pipeline.engine as pe
-import nipype.interfaces.ants as ants
-from nipype_utils import BidsOutputWriter
-from utils.io import write_minimal_bids_dataset_description
-from nipype.interfaces.utility import Select
 import nibabel as nib
 import matplotlib.pyplot as plt
 import numpy as np
+from nipype.interfaces import fsl
 
 
 # Define the slice positions for the central axial, sagittal, and coronal slices
@@ -32,21 +22,29 @@ def get_central_slices(volume):
 
 if __name__ == "__main__":
 
-    out_dir = "../data/figures/qualitative/same_scaling"
+    out_dir_base = "../../data/figures/qualitative"
+    same_scaling = False
+    if same_scaling:
+        out_dir = f"{out_dir_base}/same_scaling"
+    else:
+        out_dir = f"{out_dir_base}/scaled_per_scan"
+
     os.makedirs(out_dir, exist_ok=True)
 
-    brain_mask_file = "../data/templates/MNI152_T1_1mm_brain_mask.nii.gz"
+    brain_mask_file = fsl.Info.standard_image('MNI152_T1_1mm_brain_mask.nii.gz')
     brain_mask = nib.load(brain_mask_file).get_fdata()
 
     dataset_dirs = [
-        "/media/laurin/Data_share/Travel_Head_Study/Bonn_Skyra_3T_LowRes_bids_results_bad_b1",
-        "/media/laurin/Data_share/Travel_Head_Study/London_Kings_Vida_3T_bids_results",
-        "/media/laurin/Data_share/Travel_Head_Study/Hamburg_Prisma_3T_bids_results/fibu"
+        "/media/laurin/Elements/Travel_Head_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",
+        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_dzne",
+        "/media/laurin/Elements/Travel_Head_Study/clean/results/London_Kings_Vida_3T",
+        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_ssfp"
     ]
     dataset_names = [
         "3D-EPI (Reference)",
+        "3D-EPI (Prisma)",
         "SSFP (Reference)",
-        "SSFP (Prisma)",
+        "SSFP (Prisma)"
     ]
 
     mni_registered_data_dirs = []
@@ -103,9 +101,12 @@ if __name__ == "__main__":
         for i, volume in enumerate(r2_maps):
             sagittal, coronal, axial = get_central_slices(volume)
 
-            vmin = np.percentile(volume[~np.isnan(volume)], 5)
-            vmax = np.percentile(volume[~np.isnan(volume)], 95)
-            vmin, vmax = 0, 50  # Range [0, 50]
+
+            if same_scaling:
+                vmin, vmax = 0, 50
+            else:
+                vmin = np.percentile(volume[~np.isnan(volume)], 5)
+                vmax = np.percentile(volume[~np.isnan(volume)], 95)
 
             # Define colormap and color range
             cmap = 'viridis'  # You can change this to any colormap you prefer
@@ -141,9 +142,12 @@ if __name__ == "__main__":
         axes[2, 0].set_ylabel('Axial', fontsize=12)
 
         subject_id = subject_run_combination['subject']
-        # fig.suptitle(f"R2 Maps for Subject {subject_id} (scaled per volume)", fontsize=16)
-        fig.suptitle(f"R2 Maps for Subject {subject_id} (same colorbar range)",
-                     fontsize=16)
+        if same_scaling:
+            fig.suptitle(
+                f"R2 Maps for Subject {subject_id} (same colorbar range)", fontsize=16)
+        else:
+            fig.suptitle(f"R2 Maps for Subject {subject_id} (scaled per scan)", fontsize=16)
+
 
         brain_shape = brain_mask.shape
         for ax in axes.flatten():
