@@ -1,1 +1,0 @@
-fslroi /home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/subtract_background_phase/magnitude.nii.gz /home/laurin/workspace/t2_mapping_traveling_heads/cli/temp/process_3depi/preprocess_3depi/mag_first_volume_extractor/magnitude_roi.nii.gz 0 1
