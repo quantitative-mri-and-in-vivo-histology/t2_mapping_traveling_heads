@@ -23,18 +23,18 @@ def main():
         '--t1w_files',
         nargs='+',
         required=True,
-        help="List of T1-weighted (SPGR) image files. First image will be used\n" \
-             "as reference for motion correction. There must be a JSON metadata\n" \
-             "file with the same name for each T1w image. JSON metadata must\n" \
+        help="List of T1-weighted (SPGR) image files. First image will be used " \
+             "as reference for motion correction. There must be a JSON metadata " \
+             "file with the same name for each T1w image. JSON metadata must " \
              "include tags: FlipAngle, RepetitionTimeExcitation, RfPulseDuration, RfPhaseIncrement."
     )
     parser.add_argument(
         '--t2w_files',
         nargs='+',
         required=True,
-        help="List of T2-weighted (SSFP) image files. First image will be used\n" \
-             "as reference for motion correction. There must be a JSON metadata\n" \
-             "file with the same name for each T1w image. JSON metadata must\n" \
+        help="List of T2-weighted (SSFP) image files. First image will be used " \
+             "as reference for motion correction. There must be a JSON metadata " \
+             "file with the same name for each T1w image. JSON metadata must " \
              "include tags: FlipAngle, RepetitionTimeExcitation, EchoTime."
     )
     parser.add_argument(
