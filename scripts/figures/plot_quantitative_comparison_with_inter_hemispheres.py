@@ -68,7 +68,7 @@ if __name__ == "__main__":
         "SSFP (Prisma)"
     ]
 
-    regenerate_data = True
+    regenerate_data = False
 
     if regenerate_data:
 
@@ -449,6 +449,9 @@ if __name__ == "__main__":
         # Prepare data for the boxplot (grouped by region)
         data = [pooled_region_data[region_name][site_name] for region_name in
                 region_names]
+        #
+        # for i in range(0, len(data)):
+        #     data[i] = data[i]/np.mean(data[i])
 
         flierprops = dict(marker='.', markerfacecolor='black', markersize=3,
                           linestyle='none')

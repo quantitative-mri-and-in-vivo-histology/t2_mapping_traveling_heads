@@ -205,6 +205,7 @@ def estimate_relaxation_3d_epi(base_dir=os.getcwd(),
         ]),
         name="input_node"
     )
+    input_node.inputs.brain_mask_file = None
 
     output_node = pe.Node(
         IdentityInterface(fields=[

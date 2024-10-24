@@ -69,7 +69,7 @@ if __name__ == "__main__":
         "SSFP (Prisma)",
     ]
 
-    regenerate_data = True
+    regenerate_data = False
 
     if regenerate_data:
 

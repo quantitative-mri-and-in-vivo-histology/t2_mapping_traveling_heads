@@ -8,7 +8,7 @@ from nipype.interfaces import fsl
 
 # Define the slice positions for the central axial, sagittal, and coronal slices
 def get_central_slices(volume):
-    x_mid = volume.shape[0] // 2  # Sagittal (cut along x-axis)
+    x_mid = (volume.shape[0] // 2) - 5  # Sagittal (cut along x-axis)
     y_mid = volume.shape[1] // 2  # Coronal (cut along y-axis)
     z_mid = volume.shape[2] // 2  # Axial (cut along z-axis)
 
@@ -23,7 +23,7 @@ def get_central_slices(volume):
 if __name__ == "__main__":
 
     out_dir_base = "../../data/figures/qualitative"
-    same_scaling = False
+    same_scaling = True
     if same_scaling:
         out_dir = f"{out_dir_base}/same_scaling"
     else:
@@ -33,6 +33,10 @@ if __name__ == "__main__":
 
     brain_mask_file = fsl.Info.standard_image('MNI152_T1_1mm_brain_mask.nii.gz')
     brain_mask = nib.load(brain_mask_file).get_fdata()
+
+    brain_probseg_file = "/home/laurin/workspace/t2_mapping_traveling_heads/data/atlases/brain_probseg_1mm.nii.gz"
+    brain_probseg = nib.load(brain_probseg_file).get_fdata()
+    brain_mask = brain_probseg > 0.95
 
     dataset_dirs = [
         "/media/laurin/Elements/Travel_Head_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",

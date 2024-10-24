@@ -3,29 +3,42 @@ import math
 
 def compute_t2_t1_amplitude_maps(magnitude_file,
                                  phase_file,
-                                 mask_file,
                                  b1_map_file,
                                  repetition_time,
                                  flip_angle,
-                                 rf_phase_increments
+                                 rf_phase_increments,
+                                 mask_file=None
                                  ):
     from T2T1AM import cal_T2T1AM
     import os
     import nibabel as nib
+    import numpy as np
 
     base_dir = os.getcwd()
     output_dir = base_dir
 
+    if mask_file is None:
+        # Create a mask of ones with the same shape as the input image
+        img = nib.load(magnitude_file)
+        mask_data = np.ones(img.shape[0:3], dtype=np.uint8)
+        mask_img = nib.Nifti1Image(mask_data, img.affine, img.header)
+        mask_file = os.path.join(base_dir, "mask.nii.gz")
+        nib.save(mask_img, mask_file)
+
+    # compute repetition time in milliseconds for cal_T2T1AM
     repetition_time_ms = 1000 * repetition_time
+
+    # fit T1, T2, AM
     cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file,
                repetition_time_ms, flip_angle, rf_phase_increments,
                outputdir=output_dir)
 
+    # define fixed output paths (used by cal_T2T1AM)
     t2_map_file = os.path.join(base_dir, "T2_.nii.gz")
     t1_map_file = os.path.join(base_dir, "T1_.nii.gz")
     am_map_file = os.path.join(base_dir, "Am_.nii.gz")
 
-    # scale t1 to seconds
+    # compute T1 in seconds and save
     t1_map_msec_nib = nib.load(t1_map_file)
     t1_map_msec = t1_map_msec_nib.get_fdata()
     t1_map_sec = t1_map_msec / 1000.0
@@ -33,7 +46,7 @@ def compute_t2_t1_amplitude_maps(magnitude_file,
                                      t1_map_msec_nib.header)
     nib.save(t1_map_sec_nib, t1_map_file)
 
-    # scale t2 to seconds
+    # compute T2 in seconds and save
     t2_map_msec_nib = nib.load(t2_map_file)
     t2_map_msec = t2_map_msec_nib.get_fdata()
     t2_map_sec = t2_map_msec / 1000.0
