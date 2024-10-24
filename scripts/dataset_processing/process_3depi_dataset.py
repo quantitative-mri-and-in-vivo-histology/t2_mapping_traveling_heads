@@ -270,7 +270,7 @@ def main():
 
         r1_map_writer = pe.Node(BidsOutputWriter(),
                                 name="r1_map_writer")
-        r1_map_writer.inputs.output_dir = args.output_derivative_dir
+        r1_map_writer.inputs.output_dir = args.output_dir
         r1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R1_MAP
         wf.connect(estimate_relaxation_3d_epi_wf, "output_node.r1_map_file",
                    r1_map_writer, "in_file")
@@ -279,7 +279,7 @@ def main():
 
         r2_map_writer = pe.Node(BidsOutputWriter(),
                                 name="r2_map_writer")
-        r2_map_writer.inputs.output_dir = args.output_derivative_dir
+        r2_map_writer.inputs.output_dir = args.output_dir
         r2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R2_MAP
         wf.connect(estimate_relaxation_3d_epi_wf, "output_node.r2_map_file",
                    r2_map_writer, "in_file")
@@ -288,7 +288,7 @@ def main():
 
         t1_map_writer = pe.Node(BidsOutputWriter(),
                                 name="t1_map_writer")
-        t1_map_writer.inputs.output_dir = args.output_derivative_dir
+        t1_map_writer.inputs.output_dir = args.output_dir
         t1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T1_MAP
         wf.connect(estimate_relaxation_3d_epi_wf, "output_node.t1_map_file",
                    t1_map_writer, "in_file")
@@ -297,7 +297,7 @@ def main():
 
         t2_map_writer = pe.Node(BidsOutputWriter(),
                                 name="t2_map_writer")
-        t2_map_writer.inputs.output_dir = args.output_derivative_dir
+        t2_map_writer.inputs.output_dir = args.output_dir
         t2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2_MAP
         wf.connect(estimate_relaxation_3d_epi_wf, "output_node.t2_map_file",
                    t2_map_writer, "in_file")
@@ -306,7 +306,7 @@ def main():
 
         am_map_writer = pe.Node(BidsOutputWriter(),
                                 name="am_map_writer")
-        am_map_writer.inputs.output_dir = args.output_derivative_dir
+        am_map_writer.inputs.output_dir = args.output_dir
         am_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_AM_MAP
         wf.connect(estimate_relaxation_3d_epi_wf, "output_node.am_map_file",
                    am_map_writer, "in_file")
