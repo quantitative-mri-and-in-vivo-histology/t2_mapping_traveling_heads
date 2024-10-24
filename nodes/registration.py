@@ -14,9 +14,9 @@ def create_default_ants_rigid_registration_node():
         sampling_percentage=[0.25],  # Sampling percentage
         convergence_threshold=[1e-6],  # Convergence threshold
         convergence_window_size=[10],  # Convergence window size
-        number_of_iterations=[[500, 250, 100]],
-        shrink_factors=[[6, 3, 1]],  # Shrink factors for multi-resolution
-        smoothing_sigmas=[[2, 1, 0]],  # Smoothing sigmas for multi-resolution
+        number_of_iterations=[[1000, 500, 250, 100]],
+        shrink_factors=[[8, 4, 2, 1]],  # Shrink factors for multi-resolution
+        smoothing_sigmas=[[3, 2, 1, 0]],  # Smoothing sigmas for multi-resolution
         interpolation='Linear',  # Bspline interpolation
         collapse_output_transforms=True,
         output_warped_image='output_warped_image.nii.gz'

@@ -16,9 +16,9 @@ from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
                                STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG,
                                STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE,
                                STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
-                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF,
                                PROCESSED_ENTITY_OVERRIDES_B1_MAP,
-                               PROCESSED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_B1_ANAT_REF,
                                PROCESSED_ENTITY_OVERRIDES_T2W_MAG,
                                PROCESSED_ENTITY_OVERRIDES_T2W_PHASE,
                                PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
@@ -47,12 +47,12 @@ def assert_all_similar(values, tolerance=1e-9):
 def main():
     parser = argparse.ArgumentParser(
         description="Process 3D-EPI dataset.")
-    parser.add_argument('-i', '--bids_root', required=True,
+    parser.add_argument('-i', '--input_dir', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
     parser.add_argument(
         '--preprocess_only', action='store_true', default=False,
         help="Preprocess the data only, without parameter estimation"
@@ -66,10 +66,10 @@ def main():
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
     # Define the reusable run settings in a dictionary
@@ -77,7 +77,7 @@ def main():
                         plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
-    layout = BIDSLayout(args.bids_root,
+    layout = BIDSLayout(args.input_dir,
                         derivatives=True,
                         validate=False)
 
@@ -140,7 +140,7 @@ def main():
                         subject=subject,
                         session=session,
                         run=run,
-                        **STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                        **STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF,
                         **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     input_dict["echo_time"] = input_dict[
@@ -156,7 +156,7 @@ def main():
 
     # set up workflow
     wf = pe.Workflow(name="process_3depi_dataset")
-    wf.base_dir = args.base_dir
+    wf.base_dir = args.temp_dir
 
     # create input node using entries in input_dict and
     # use independent subject-session-run combinations as iterables
@@ -196,7 +196,7 @@ def main():
 
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_writer")
-    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_map_file_writer.inputs.output_dir = args.output_dir
     b1_map_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_MAP
     wf.connect(preprocess_3depi_wf, "output_node.b1_map_file",
                b1_map_file_writer, "in_file")
@@ -205,8 +205,8 @@ def main():
 
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
-    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_REF
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
+    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_ANAT_REF
     wf.connect(preprocess_3depi_wf, "output_node.b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_file",
@@ -215,7 +215,7 @@ def main():
     t2w_mag_file_writer = pe.MapNode(BidsOutputWriter(),
                                      iterfield=['in_file', 'template_file'],
                                      name="t2w_mag_file_writer")
-    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_mag_file_writer.inputs.output_dir = args.output_dir
     t2w_mag_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2W_MAG
     wf.connect(preprocess_3depi_wf, "output_node.magnitude_file",
                t2w_mag_file_writer, "in_file")
@@ -225,7 +225,7 @@ def main():
     t2w_phase_file_writer = pe.MapNode(BidsOutputWriter(),
                                        iterfield=['in_file', 'template_file'],
                                        name="t2w_phase_file_writer")
-    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_phase_file_writer.inputs.output_dir = args.output_dir
     t2w_phase_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2W_PHASE
     wf.connect(preprocess_3depi_wf, "output_node.phase_file",
                t2w_phase_file_writer, "in_file")
@@ -234,7 +234,7 @@ def main():
 
     t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
                                     name="t1w_reg_target_writer")
-    t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
+    t1w_reg_target_writer.inputs.output_dir = args.output_dir
     t1w_reg_target_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE
     wf.connect(register_t1w_to_t2w, "warped_image",
                t1w_reg_target_writer, "in_file")
@@ -243,7 +243,7 @@ def main():
 
     brain_mask_file_writer = pe.Node(BidsOutputWriter(),
                                      name="brain_mask_file_writer")
-    brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
+    brain_mask_file_writer.inputs.output_dir = args.output_dir
     brain_mask_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
     wf.connect(create_brain_mask_wf, "output_node.out_file",
                brain_mask_file_writer, "in_file")
@@ -312,25 +312,6 @@ def main():
                    am_map_writer, "in_file")
         wf.connect(input_node, "t2w_mag_file",
                    am_map_writer, "template_file")
-
-        # # write relaxation parameter map files
-        # out_maps = dict(
-        #     R1map="output_node.r1_map_file",
-        #     R2map="output_node.r2_map_file",
-        #     T1map="output_node.t1_map_file",
-        #     T2map="output_node.t2_map_file"
-        # )
-        # for out_map_suffix, out_map_name in out_maps.items():
-        #     file_writer = pe.Node(BidsOutputWriter(),
-        #                           name="file_writer_{}".format(out_map_suffix))
-        #     file_writer.inputs.output_dir = args.output_derivative_dir
-        #     file_writer.inputs.entity_overrides = dict(part=None,
-        #                                                suffix=out_map_suffix,
-        #                                                acquisition=None)
-        #     wf.connect(estimate_relaxation_3d_epi_wf, out_map_name,
-        #                file_writer, "in_file")
-        #     wf.connect(input_node, "t2w_mag_file",
-        #                file_writer, "template_file")
 
     wf.run(**run_settings)
 

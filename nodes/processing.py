@@ -1,17 +1,41 @@
-import os
-import json
 from os import path
-from pathlib import Path
-from bids.layout import BIDSLayout
-from nipype.interfaces.base import BaseInterface, BaseInterfaceInputSpec
-from nipype.utils.filemanip import copyfile
-from nipype.interfaces.base import File, TraitedSpec, traits, isdefined
 from nipype.interfaces.fsl.base import FSLCommand, FSLCommandInputSpec
 import os
 from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
-                                    TraitedSpec, File, traits, isdefined)
+                                    TraitedSpec, isdefined)
+from nipype.utils.filemanip import fname_presuffix
+from nipype.interfaces.ants.segmentation import BrainExtraction, \
+    BrainExtractionInputSpec
+from nipype.interfaces.base import File, traits
+import os
+from os import path
+
+from nipype.interfaces.ants.segmentation import BrainExtraction, \
+    BrainExtractionInputSpec
+from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
+                                    TraitedSpec, isdefined)
+from nipype.interfaces.base import File, traits
+from nipype.interfaces.fsl.base import FSLCommand, FSLCommandInputSpec
 from nipype.utils.filemanip import fname_presuffix
 
+
+class CustomBrainExtractionInputSpec(BrainExtractionInputSpec):
+    initial_transform = File(
+        exists=True,
+        argstr="-r %s",
+        desc="Initial transform to guide brain extraction.",
+        mandatory=False,
+    )
+
+
+class CustomBrainExtraction(BrainExtraction):
+    input_spec = CustomBrainExtractionInputSpec
+
+    def _format_arg(self, name, spec, value):
+        # Handle initial_transform in the command
+        if name == 'initial_transform' and value:
+            return super(CustomBrainExtraction, self)._format_arg(name, spec, value)
+        return super(CustomBrainExtraction, self)._format_arg(name, spec, value)
 
 
 class ApplyXfm4DInputSpec(FSLCommandInputSpec):

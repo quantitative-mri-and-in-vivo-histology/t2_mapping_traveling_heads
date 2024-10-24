@@ -1,10 +1,9 @@
 import argparse
-import json
 import math
 import os
 import multiprocessing
 from nipype import Workflow
-from nipype.interfaces.utility import IdentityInterface, Function
+from nipype.interfaces.utility import IdentityInterface
 import nipype.pipeline.engine as pe
 from nipype import Node
 from bids.layout import BIDSLayout
@@ -37,8 +36,6 @@ def main():
     parser.add_argument('--subject', help='Process a specific subject.')
     parser.add_argument('--session', help='Process a specific session.')
     parser.add_argument('--run', help='Process a specific run.')
-    args = parser.parse_args()
-
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
@@ -102,7 +99,7 @@ def main():
                         echo=6,
                         part="mag",
                         suffix="MPM",
-                        extension="nii.gz")
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["t2w_mag_file"],
                      input_dict["t2w_mag_json_dict"]) = find_image_and_json(
@@ -113,7 +110,7 @@ def main():
                         acquisition="dzneep3df0a107f",
                         suffix="T2w",
                         part="mag",
-                        extension="nii.gz")
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["t2w_phase_file"],
                      input_dict["t2w_phase_json_dict"]) = find_image_and_json(
@@ -124,7 +121,7 @@ def main():
                         acquisition="dzneep3df0a107f",
                         suffix="T2w",
                         part="phase",
-                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_map_file"],
                      input_dict["b1_map_json_dict"]) = find_image_and_json(
@@ -134,7 +131,7 @@ def main():
                         run=run,
                         acquisition="B1",
                         suffix="B1Map",
-                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_anat_ref_file"],
                      input_dict["b1_anat_ref_json_dict"]) = find_image_and_json(
@@ -144,7 +141,7 @@ def main():
                         run=run,
                         acquisition="B1Ref",
                         suffix="magnitude",
-                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b0_mag1_file"],
                      input_dict["b0_mag1_json_dict"]) = find_image_and_json(
@@ -154,7 +151,7 @@ def main():
                         run=run,
                         acquisition="grefieldmap1acqrlshortAntoine",
                         suffix="magnitude1",
-                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b0_phasediff_file"],
                      input_dict[
@@ -165,7 +162,7 @@ def main():
                         run=run,
                         acquisition="grefieldmap1acqrlshortAntoine",
                         suffix="phasediff",
-                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     input_dict["b0_mag1_entity_overrides"] = dict(
                         run=run,
@@ -173,7 +170,6 @@ def main():
 
                     input_dict["b0_phasediff_entity_overrides"] = dict(
                         run=run,
-                        acquisition="B0",
                         **STANDARDIZED_ENTITY_OVERRIDES_B0_PHASEDIFF_MAP)
 
                     b0_te_delta = input_dict["b0_phasediff_json_dict"][
@@ -234,7 +230,7 @@ def main():
     wf.connect(input_node, "b0_phase_unwrap_factor",
                unwrap_phase_b0, "operand_value")
 
-    # b1 adjustment for T2w images
+    # B1 adjustment for T2w images
     correct_b1_with_b0_wf = correct_b1_with_b0()
     wf.connect(unwrap_phase_b0, "out_file",
                correct_b1_with_b0_wf, "input_node.b0_map_file")
@@ -264,6 +260,7 @@ def main():
     wf.connect(input_node, "t2w_phase_file",
                scale_phase_from_siemens_to_radian, "in_file")
 
+    # write B1 map
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_formatter")
     b1_map_file_writer.inputs.output_dir = args.output_dir
@@ -275,6 +272,7 @@ def main():
     wf.connect(input_node, "b1_map_file",
                b1_map_file_writer, "template_file")
 
+    # write B1 anatomical reference image
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
     b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
@@ -286,6 +284,7 @@ def main():
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "template_file")
 
+    # write B0 map
     b0_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b0_map_file_writer")
     b0_map_file_writer.inputs.output_dir = args.output_dir
@@ -298,6 +297,7 @@ def main():
     wf.connect(input_node, "b0_phasediff_entity_overrides",
                b0_map_file_writer, "entity_overrides")
 
+    # write B0 anatomical reference image
     b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b0_anat_ref_file_writer")
     b0_anat_ref_file_writer.inputs.output_dir = args.output_dir
@@ -310,6 +310,7 @@ def main():
     wf.connect(input_node, "b0_mag1_entity_overrides",
                b0_anat_ref_file_writer, "entity_overrides")
 
+    # write T2w magnitude images
     t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
                                   name="t2w_mag_file_writer")
     t2w_mag_file_writer.inputs.output_dir = args.output_dir
@@ -321,6 +322,7 @@ def main():
     wf.connect(input_node, "t2w_mag_json_dict",
                t2w_mag_file_writer, "json_dict")
 
+    # write T2w phase images
     t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
                                     name="t2w_phase_file_writer")
     t2w_phase_file_writer.inputs.output_dir = args.output_dir
@@ -332,6 +334,7 @@ def main():
     wf.connect(input_node, "t2w_phase_json_dict",
                t2w_phase_file_writer, "json_dict")
 
+    # write T1w image
     t1w_file_writer = pe.Node(BidsOutputWriter(),
                               name="t1w_file_writer")
     t1w_file_writer.inputs.output_dir = args.output_dir
