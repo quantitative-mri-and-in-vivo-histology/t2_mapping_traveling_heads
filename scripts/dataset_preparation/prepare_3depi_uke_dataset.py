@@ -9,20 +9,28 @@ import nipype.pipeline.engine as pe
 from nipype import Node
 from bids.layout import BIDSLayout
 import nipype.interfaces.fsl as fsl
-from workflows.fieldmap_workflows import correct_b1_with_b0
-from nipype_utils import BidsOutputWriter
+from workflows.processing import correct_b1_with_b0
+from nodes.io import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
+from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
+                               STANDARDIZED_ENTITY_OVERRIDES_T1W,
+                               STANDARDIZED_ENTITY_OVERRIDES_B0_PHASEDIFF_MAP,
+                               STANDARDIZED_ENTITY_OVERRIDES_B0_ANAT_REF,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF,
+                               STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG,
+                               STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Prepare 3D-EPI dataset from UKE, Hamburg.")
-    parser.add_argument('-i', '--bids_root', required=True,
+        description="Prepare SSFP dataset from King's College Hospital, London.")
+    parser.add_argument('-i', '--input_dir', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
@@ -31,26 +39,22 @@ def main():
     parser.add_argument('--run', help='Process a specific run.')
     args = parser.parse_args()
 
-    # Ensure `derivatives` is a list with one or more entries
-    if not args.derivatives or len(args.derivatives) == 0:
-        raise ValueError(
-            "At least one derivatives directory must be specified with the -d option.")
+    args = parser.parse_args()
 
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    # write minimal dataset description for output derivatives
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
     # Define the reusable run settings in a dictionary
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
+    run_settings = dict(plugin='MultiProc',
+                        plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
-    layout = BIDSLayout(args.bids_root,
-                        derivatives=args.derivatives,
+    layout = BIDSLayout(args.input_dir,
+                        derivatives=True,
                         validate=False)
 
     inputs = []
@@ -81,7 +85,6 @@ def main():
                     runs = [None]
 
                 for run in runs:
-
                     input_dict = dict(
                         subject=subject,
                         session=session,
@@ -121,7 +124,7 @@ def main():
                         acquisition="dzneep3df0a107f",
                         suffix="T2w",
                         part="phase",
-                        extension="nii.gz")
+                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_map_file"],
                      input_dict["b1_map_json_dict"]) = find_image_and_json(
@@ -131,7 +134,7 @@ def main():
                         run=run,
                         acquisition="B1",
                         suffix="B1Map",
-                        extension="nii.gz")
+                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b1_anat_ref_file"],
                      input_dict["b1_anat_ref_json_dict"]) = find_image_and_json(
@@ -141,7 +144,7 @@ def main():
                         run=run,
                         acquisition="B1Ref",
                         suffix="magnitude",
-                        extension="nii.gz")
+                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b0_mag1_file"],
                      input_dict["b0_mag1_json_dict"]) = find_image_and_json(
@@ -151,7 +154,7 @@ def main():
                         run=run,
                         acquisition="grefieldmap1acqrlshortAntoine",
                         suffix="magnitude1",
-                        extension="nii.gz")
+                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     (input_dict["b0_phasediff_file"],
                      input_dict[
@@ -162,15 +165,16 @@ def main():
                         run=run,
                         acquisition="grefieldmap1acqrlshortAntoine",
                         suffix="phasediff",
-                        extension="nii.gz")
+                        extension=DEFAULT_NIFTI_READ_EXT_ENTITY)
 
                     input_dict["b0_mag1_entity_overrides"] = dict(
-                        run=run, acquisition="B0Ref",
-                        suffix="magnitude")
+                        run=run,
+                        **STANDARDIZED_ENTITY_OVERRIDES_B0_ANAT_REF)
 
                     input_dict["b0_phasediff_entity_overrides"] = dict(
-                        run=run, acquisition="B0",
-                        suffix="phasediff")
+                        run=run,
+                        acquisition="B0",
+                        **STANDARDIZED_ENTITY_OVERRIDES_B0_PHASEDIFF_MAP)
 
                     b0_te_delta = input_dict["b0_phasediff_json_dict"][
                                       "EchoTime2"] - \
@@ -210,8 +214,8 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
-    wf = Workflow(name="prepare_kings_dataset")
-    wf.base_dir = args.base_dir
+    wf = Workflow(name="prepare_3depi_uke_dataset")
+    wf.base_dir = args.temp_dir
 
     # normalize B1 map
     normalize_b1 = pe.Node(
@@ -260,16 +264,10 @@ def main():
     wf.connect(input_node, "t2w_phase_file",
                scale_phase_from_siemens_to_radian, "in_file")
 
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_formatter")
-    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_map_file_writer.inputs.pattern = out_pattern
-    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-                                                      suffix="B1Map")
+    b1_map_file_writer.inputs.output_dir = args.output_dir
+    b1_map_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_B1_MAP
     wf.connect(correct_b1_with_b0_wf, "output_node.out_file",
                b1_map_file_writer, "in_file")
     wf.connect(input_node, "b1_map_json_dict",
@@ -279,10 +277,8 @@ def main():
 
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
-    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.pattern = out_pattern
-    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1Ref",
-                                                           suffix="magnitude")
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
+    b1_anat_ref_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_json_dict",
@@ -292,8 +288,7 @@ def main():
 
     b0_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b0_map_file_writer")
-    b0_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b0_map_file_writer.inputs.pattern = out_pattern
+    b0_map_file_writer.inputs.output_dir = args.output_dir
     wf.connect(unwrap_phase_b0, "out_file",
                b0_map_file_writer, "in_file")
     wf.connect(input_node, "b0_phasediff_json_dict",
@@ -305,8 +300,7 @@ def main():
 
     b0_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b0_anat_ref_file_writer")
-    b0_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b0_anat_ref_file_writer.inputs.pattern = out_pattern
+    b0_anat_ref_file_writer.inputs.output_dir = args.output_dir
     wf.connect(input_node, "b0_mag1_file",
                b0_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b0_mag1_json_dict",
@@ -318,9 +312,8 @@ def main():
 
     t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
                                   name="t2w_mag_file_writer")
-    t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_mag_file_writer.inputs.pattern = out_pattern
-    t2w_mag_file_writer.inputs.entity_overrides = dict(desc=None)
+    t2w_mag_file_writer.inputs.output_dir = args.output_dir
+    t2w_mag_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG
     wf.connect(input_node, "t2w_mag_file",
                t2w_mag_file_writer, "in_file")
     wf.connect(input_node, "t2w_mag_file",
@@ -330,9 +323,8 @@ def main():
 
     t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
                                     name="t2w_phase_file_writer")
-    t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_phase_file_writer.inputs.pattern = out_pattern
-    t2w_phase_file_writer.inputs.entity_overrides = dict(desc=None)
+    t2w_phase_file_writer.inputs.output_dir = args.output_dir
+    t2w_phase_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE
     wf.connect(scale_phase_from_siemens_to_radian, "out_file",
                t2w_phase_file_writer, "in_file")
     wf.connect(input_node, "t2w_phase_file",
@@ -342,9 +334,8 @@ def main():
 
     t1w_file_writer = pe.Node(BidsOutputWriter(),
                               name="t1w_file_writer")
-    t1w_file_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_file_writer.inputs.pattern = out_pattern
-    t1w_file_writer.inputs.entity_overrides = dict(part=None, suffix="T1w")
+    t1w_file_writer.inputs.output_dir = args.output_dir
+    t1w_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T1W
     wf.connect(input_node, "t1w_file",
                t1w_file_writer, "in_file")
     wf.connect(input_node, "t1w_file",

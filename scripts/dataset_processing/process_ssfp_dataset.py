@@ -13,10 +13,22 @@ from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 from workflows.parameter_estimation import \
     estimate_relaxation_ssfp_multi_file
 from workflows.processing import preprocess_ssfp_spgr, create_brain_mask
-from utils.bids_config import (STANDARDIZED_ENTITY_OVERRIDES_T1W, \
-                               STANDARDIZED_ENTITY_OVERRIDES_T2W, \
+from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
+                               STANDARDIZED_ENTITY_OVERRIDES_T1W,
+                               STANDARDIZED_ENTITY_OVERRIDES_T2W,
                                STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
-                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF)
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_B1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_T1W,
+                               PROCESSED_ENTITY_OVERRIDES_T2W,
+                               PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
+                               PROCESSED_ENTITY_OVERRIDES_R1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_R2_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_T1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_T2_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_AM_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK)
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 
 
@@ -34,10 +46,10 @@ def main():
         description="Process SSFP dataset.")
     parser.add_argument('-i', '--bids_root', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
     parser.add_argument(
         '--preprocess_only', action='store_true', default=False,
         help="Preprocess the data only, without parameter estimation"
@@ -51,10 +63,10 @@ def main():
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
     # Define the reusable run settings in a dictionary
@@ -159,7 +171,7 @@ def main():
 
     # set up workflow
     wf = pe.Workflow(name="process_ssfp_dataset")
-    wf.base_dir = args.base_dir
+    wf.base_dir = args.temp_dir
 
     # create input node using entries in input_dict and
     # use independent subject-session-run combinations as iterables
@@ -186,9 +198,8 @@ def main():
 
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_writer")
-    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-                                                      suffix="B1Map")
+    b1_map_file_writer.inputs.output_dir = args.output_dir
+    b1_map_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_MAP
     wf.connect(preprocess_ssfp_wf, "output_node.b1_map_file",
                b1_map_file_writer, "in_file")
     wf.connect(input_node, "b1_map_file",
@@ -196,9 +207,8 @@ def main():
 
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
-    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
-                                                           suffix="magnitude")
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
+    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_REF
     wf.connect(preprocess_ssfp_wf, "output_node.b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_file",
@@ -207,8 +217,8 @@ def main():
     t1w_file_writer = pe.MapNode(BidsOutputWriter(),
                                  iterfield=['in_file', 'template_file'],
                                  name="t1w_file_writer")
-    t1w_file_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_file_writer.inputs.entity_overrides = dict(part=None, desc="preproc")
+    t1w_file_writer.inputs.output_dir = args.output_dir
+    t1w_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T1W
     wf.connect(preprocess_ssfp_wf, "output_node.t1w_files",
                t1w_file_writer, "in_file")
     wf.connect(input_node, "t1w_files",
@@ -217,8 +227,8 @@ def main():
     t2w_file_writer = pe.MapNode(BidsOutputWriter(),
                                  iterfield=['in_file', 'template_file'],
                                  name="t2w_file_writer")
-    t2w_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_file_writer.inputs.entity_overrides = dict(part=None, desc="preproc")
+    t2w_file_writer.inputs.output_dir = args.output_dir
+    t2w_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2W
     wf.connect(preprocess_ssfp_wf, "output_node.t2w_files",
                t2w_file_writer, "in_file")
     wf.connect(input_node, "t2w_files",
@@ -226,10 +236,8 @@ def main():
 
     t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
                                     name="t1w_reg_target_writer")
-    t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None,
-                                                         desc="preproc",
-                                                         acquisition="T1wRef")
+    t1w_reg_target_writer.inputs.output_dir = args.output_dir
+    t1w_reg_target_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE
     wf.connect(preprocess_ssfp_wf, "output_node.reg_target_file",
                t1w_reg_target_writer, "in_file")
     wf.connect(input_node, "t1w_reg_target_file",
@@ -237,11 +245,8 @@ def main():
 
     brain_mask_file_writer = pe.Node(BidsOutputWriter(),
                                      name="brain_mask_file_writer")
-    brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
-    brain_mask_file_writer.inputs.entity_overrides = dict(part=None,
-                                                          desc="brain",
-                                                          suffix="mask",
-                                                          acquisition=None)
+    brain_mask_file_writer.inputs.output_dir = args.output_dir
+    brain_mask_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
     wf.connect(create_brain_mask_wf, "output_node.out_file",
                brain_mask_file_writer, "in_file")
     wf.connect(input_node, "t1w_reg_target_file",
@@ -270,7 +275,7 @@ def main():
         for out_map_suffix, out_map_name in out_maps.items():
             file_writer = pe.Node(BidsOutputWriter(),
                                   name="file_writer_{}".format(out_map_suffix))
-            file_writer.inputs.output_dir = args.output_derivative_dir
+            file_writer.inputs.output_dir = args.output_dir
             file_writer.inputs.entity_overrides = dict(part=None,
                                                        suffix=out_map_suffix,
                                                        acquisition=None)

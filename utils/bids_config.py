@@ -13,19 +13,20 @@ STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG = dict(suffix='T2w', part="mag")
 STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE = dict(suffix='T2w', part="phase")
 STANDARDIZED_ENTITY_OVERRIDES_B0_PHASEDIFF_MAP = dict(suffix='phasediff',
                                                       acquisition='B0')
-STANDARDIZED_ENTITY_OVERRIDES_B0_REF = dict(suffix='magnitude',
+STANDARDIZED_ENTITY_OVERRIDES_B0_ANAT_REF = dict(suffix='magnitude',
                                             acquisition='B0Ref')
 STANDARDIZED_ENTITY_OVERRIDES_B1_MAP = dict(suffix='B1Map', acquisition='B1')
-STANDARDIZED_ENTITY_OVERRIDES_B1_REF = dict(suffix='magnitude',
+STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF = dict(suffix='magnitude',
                                             acquisition='B1Ref')
 
 PROCESSED_ENTITY_OVERRIDES_B1_MAP = STANDARDIZED_ENTITY_OVERRIDES_B1_MAP
-PROCESSED_ENTITY_OVERRIDES_B1_REF = STANDARDIZED_ENTITY_OVERRIDES_B1_REF
+PROCESSED_ENTITY_OVERRIDES_B1_REF = STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF
+PROCESSED_ENTITY_OVERRIDES_T1W = dict(suffix='T1w', part=None)
 PROCESSED_ENTITY_OVERRIDES_T2W_MAG = dict(suffix='T2w', part="mag",
                                           desc="preproc")
 PROCESSED_ENTITY_OVERRIDES_T2W_PHASE = dict(suffix='T2w', part="phase",
                                             desc="preproc")
-PROCESSED_ENTITY_OVERRIDES_T1W = dict(suffix='T1w', part=None)
+PROCESSED_ENTITY_OVERRIDES_T2W = dict(suffix='T2w', part=None)
 PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE = dict(desc="regRef", part=None)
 PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK = dict(suffix='mask', desc="brain",
                                              acquisition=None)
@@ -37,5 +38,5 @@ PROCESSED_ENTITY_OVERRIDES_T1_MAP = dict(suffix='T1Map', acquisition=None,
                                          part=None)
 PROCESSED_ENTITY_OVERRIDES_T2_MAP = dict(suffix='T2Map', acquisition=None,
                                          part=None)
-PROCESSED_ENTITY_OVERRIDES_AM_MAP = dict(suffix='AMMap', acquisition=None,
+PROCESSED_ENTITY_OVERRIDES_AM_MAP = dict(suffix='AmMap', acquisition=None,
                                          part=None)

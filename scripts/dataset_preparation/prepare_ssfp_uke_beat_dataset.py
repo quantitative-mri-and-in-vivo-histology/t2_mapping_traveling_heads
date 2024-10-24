@@ -13,19 +13,19 @@ from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
                                STANDARDIZED_ENTITY_OVERRIDES_T1W, \
                                STANDARDIZED_ENTITY_OVERRIDES_T2W, \
                                STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
-                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF)
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF)
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Prepare SSFP-BEAT dataset from UKE, Hamburg.")
-    parser.add_argument('-i', '--bids_root', required=True,
+    parser.add_argument('-i', '--input_dir', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
@@ -35,10 +35,10 @@ def main():
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
     # Define the reusable run settings in a dictionary
@@ -46,7 +46,7 @@ def main():
                         plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
-    layout = BIDSLayout(args.bids_root,
+    layout = BIDSLayout(args.input_dir,
                         derivatives=True,
                         validate=False)
 
@@ -190,7 +190,7 @@ def main():
 
     # set up workflow
     wf = Workflow(name="prepare_ssfp_uke_beat_dataset")
-    wf.base_dir = args.base_dir
+    wf.base_dir = args.temp_dir
 
     # create input node using entries in input_dict and
     # use independent subject-session-run combinations as iterables
@@ -227,7 +227,7 @@ def main():
     # write B1 map
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_writer")
-    b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_map_file_writer.inputs.output_dir = args.output_dir
     b1_map_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_B1_MAP
     wf.connect(normalize_b1, "out_file",
                b1_map_file_writer, "in_file")
@@ -239,9 +239,9 @@ def main():
     # write B1 anatomical reference magnitude image
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
-    b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
+    b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
     b1_anat_ref_file_writer.inputs.entity_overrides = \
-        STANDARDIZED_ENTITY_OVERRIDES_B1_REF
+        STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF
     wf.connect(input_node, "b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_json_dict",
@@ -254,7 +254,7 @@ def main():
                                  iterfield=['in_file', 'template_file',
                                             'json_dict'],
                                  name="t1w_file_writer")
-    t1w_file_writer.inputs.output_dir = args.output_derivative_dir
+    t1w_file_writer.inputs.output_dir = args.output_dir
     t1w_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T1W
     wf.connect(input_node, "t1w_files",
                t1w_file_writer, "in_file")
@@ -268,7 +268,7 @@ def main():
                                  iterfield=['in_file', 'template_file',
                                             'json_dict'],
                                  name="t2w_file_writer")
-    t2w_file_writer.inputs.output_dir = args.output_derivative_dir
+    t2w_file_writer.inputs.output_dir = args.output_dir
     t2w_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T2W
     wf.connect(input_node, "t2w_files",
                t2w_file_writer, "in_file")
