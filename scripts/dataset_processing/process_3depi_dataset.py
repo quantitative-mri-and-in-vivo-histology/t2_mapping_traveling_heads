@@ -11,11 +11,24 @@ from nipype.interfaces.utility import IdentityInterface
 
 from nodes.io import BidsOutputWriter
 from nodes.registration import create_default_ants_rigid_registration_node
-from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
-    STANDARDIZED_ENTITY_OVERRIDES_T1W, \
-    STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG, \
-    STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE, \
-    STANDARDIZED_ENTITY_OVERRIDES_B1_MAP, STANDARDIZED_ENTITY_OVERRIDES_B1_REF
+from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
+                               STANDARDIZED_ENTITY_OVERRIDES_T1W,
+                               STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG,
+                               STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_B1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_T2W_MAG,
+                               PROCESSED_ENTITY_OVERRIDES_T2W_PHASE,
+                               PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
+                               PROCESSED_ENTITY_OVERRIDES_R1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_R2_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_T1_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_T2_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_AM_MAP,
+                               PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK)
+
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 from workflows.parameter_estimation import \
     estimate_relaxation_3d_epi
@@ -171,7 +184,7 @@ def main():
                mag_first_volume_extractor, "in_file")
 
     register_t1w_to_t2w = pe.Node(create_default_ants_rigid_registration_node(),
-                                          name="register_t1w_to_t2w")
+                                  name="register_t1w_to_t2w")
     wf.connect(mag_first_volume_extractor, "roi_file",
                register_t1w_to_t2w, "fixed_image")
     wf.connect(input_node, "t1w_file",
@@ -181,13 +194,10 @@ def main():
     wf.connect(register_t1w_to_t2w, "warped_image",
                create_brain_mask_wf, "input_node.in_file")
 
-
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_writer")
     b1_map_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_map_file_writer.inputs.entity_overrides = dict(acquisition="B1",
-                                                      suffix="B1map",
-                                                      desc="registered")
+    b1_map_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_MAP
     wf.connect(preprocess_3depi_wf, "output_node.b1_map_file",
                b1_map_file_writer, "in_file")
     wf.connect(input_node, "b1_map_file",
@@ -196,9 +206,7 @@ def main():
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
     b1_anat_ref_file_writer.inputs.output_dir = args.output_derivative_dir
-    b1_anat_ref_file_writer.inputs.entity_overrides = dict(acquisition="B1ref",
-                                                           suffix="magnitude",
-                                                           desc="registered")
+    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_REF
     wf.connect(preprocess_3depi_wf, "output_node.b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_file",
@@ -208,7 +216,7 @@ def main():
                                      iterfield=['in_file', 'template_file'],
                                      name="t2w_mag_file_writer")
     t2w_mag_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_mag_file_writer.inputs.entity_overrides = dict(desc="preproc")
+    t2w_mag_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2W_MAG
     wf.connect(preprocess_3depi_wf, "output_node.magnitude_file",
                t2w_mag_file_writer, "in_file")
     wf.connect(input_node, "t2w_mag_file",
@@ -218,7 +226,7 @@ def main():
                                        iterfield=['in_file', 'template_file'],
                                        name="t2w_phase_file_writer")
     t2w_phase_file_writer.inputs.output_dir = args.output_derivative_dir
-    t2w_phase_file_writer.inputs.entity_overrides = dict(desc="preproc")
+    t2w_phase_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2W_PHASE
     wf.connect(preprocess_3depi_wf, "output_node.phase_file",
                t2w_phase_file_writer, "in_file")
     wf.connect(input_node, "t2w_phase_file",
@@ -227,9 +235,7 @@ def main():
     t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
                                     name="t1w_reg_target_writer")
     t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    t1w_reg_target_writer.inputs.entity_overrides = dict(part=None,
-                                                         desc="preproc",
-                                                         acquisition="T1wRef")
+    t1w_reg_target_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE
     wf.connect(register_t1w_to_t2w, "warped_image",
                t1w_reg_target_writer, "in_file")
     wf.connect(input_node, "t1w_file",
@@ -238,10 +244,7 @@ def main():
     brain_mask_file_writer = pe.Node(BidsOutputWriter(),
                                      name="brain_mask_file_writer")
     brain_mask_file_writer.inputs.output_dir = args.output_derivative_dir
-    brain_mask_file_writer.inputs.entity_overrides = dict(part=None,
-                                                          desc="brain",
-                                                          suffix="mask",
-                                                          acquisition=None)
+    brain_mask_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
     wf.connect(create_brain_mask_wf, "output_node.out_file",
                brain_mask_file_writer, "in_file")
     wf.connect(input_node, "t1w_file",
@@ -254,33 +257,80 @@ def main():
         wf.connect([(preprocess_3depi_wf, estimate_relaxation_3d_epi_wf, [
             ('output_node.b1_map_file', 'input_node.b1_map_file'),
             ('output_node.magnitude_file', 'input_node.t2w_magnitude_file'),
-            ('output_node.phase_file', 'input_node.t2w_phase_file'),
-            ('output_node.brain_mask_file', 'input_node.brain_mask_file')
+            ('output_node.phase_file', 'input_node.t2w_phase_file')
         ])])
         wf.connect([(input_node, estimate_relaxation_3d_epi_wf, [
             ('rf_phase_increments', 'input_node.rf_phase_increments'),
             ('repetition_time', 'input_node.repetition_time'),
             ('flip_angle', 'input_node.flip_angle')
         ])])
+        wf.connect([(create_brain_mask_wf, estimate_relaxation_3d_epi_wf, [
+            ('output_node.out_file', 'input_node.brain_mask_file')
+        ])])
 
-        # write relaxation parameter map files
-        out_maps = dict(
-            R1map="output_node.r1_map_file",
-            R2map="output_node.r2_map_file",
-            T1map="output_node.t1_map_file",
-            T2map="output_node.t2_map_file"
-        )
-        for out_map_suffix, out_map_name in out_maps.items():
-            file_writer = pe.Node(BidsOutputWriter(),
-                                  name="file_writer_{}".format(out_map_suffix))
-            file_writer.inputs.output_dir = args.output_derivative_dir
-            file_writer.inputs.entity_overrides = dict(part=None,
-                                                       suffix=out_map_suffix,
-                                                       acquisition=None)
-            wf.connect(estimate_relaxation_3d_epi_wf, out_map_name,
-                       file_writer, "in_file")
-            wf.connect(input_node, "t2w_mag_file",
-                       file_writer, "template_file")
+        r1_map_writer = pe.Node(BidsOutputWriter(),
+                                name="r1_map_writer")
+        r1_map_writer.inputs.output_dir = args.output_derivative_dir
+        r1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R1_MAP
+        wf.connect(estimate_relaxation_3d_epi_wf, "output_node.r1_map_file",
+                   r1_map_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   r1_map_writer, "template_file")
+
+        r2_map_writer = pe.Node(BidsOutputWriter(),
+                                name="r2_map_writer")
+        r2_map_writer.inputs.output_dir = args.output_derivative_dir
+        r2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R2_MAP
+        wf.connect(estimate_relaxation_3d_epi_wf, "output_node.r2_map_file",
+                   r2_map_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   r2_map_writer, "template_file")
+
+        t1_map_writer = pe.Node(BidsOutputWriter(),
+                                name="t1_map_writer")
+        t1_map_writer.inputs.output_dir = args.output_derivative_dir
+        t1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T1_MAP
+        wf.connect(estimate_relaxation_3d_epi_wf, "output_node.t1_map_file",
+                   t1_map_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   t1_map_writer, "template_file")
+
+        t2_map_writer = pe.Node(BidsOutputWriter(),
+                                name="t2_map_writer")
+        t2_map_writer.inputs.output_dir = args.output_derivative_dir
+        t2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2_MAP
+        wf.connect(estimate_relaxation_3d_epi_wf, "output_node.t2_map_file",
+                   t2_map_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   t2_map_writer, "template_file")
+
+        am_map_writer = pe.Node(BidsOutputWriter(),
+                                name="am_map_writer")
+        am_map_writer.inputs.output_dir = args.output_derivative_dir
+        am_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_AM_MAP
+        wf.connect(estimate_relaxation_3d_epi_wf, "output_node.am_map_file",
+                   am_map_writer, "in_file")
+        wf.connect(input_node, "t2w_mag_file",
+                   am_map_writer, "template_file")
+
+        # # write relaxation parameter map files
+        # out_maps = dict(
+        #     R1map="output_node.r1_map_file",
+        #     R2map="output_node.r2_map_file",
+        #     T1map="output_node.t1_map_file",
+        #     T2map="output_node.t2_map_file"
+        # )
+        # for out_map_suffix, out_map_name in out_maps.items():
+        #     file_writer = pe.Node(BidsOutputWriter(),
+        #                           name="file_writer_{}".format(out_map_suffix))
+        #     file_writer.inputs.output_dir = args.output_derivative_dir
+        #     file_writer.inputs.entity_overrides = dict(part=None,
+        #                                                suffix=out_map_suffix,
+        #                                                acquisition=None)
+        #     wf.connect(estimate_relaxation_3d_epi_wf, out_map_name,
+        #                file_writer, "in_file")
+        #     wf.connect(input_node, "t2w_mag_file",
+        #                file_writer, "template_file")
 
     wf.run(**run_settings)
 
