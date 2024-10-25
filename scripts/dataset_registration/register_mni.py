@@ -200,17 +200,10 @@ def main():
                                       suffix="warp",
                                       **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
-                    input_dict["relaxation_maps"] = [
-                        input_dict["r1_map_file"],
-                        input_dict["r2_map_file"],
-                        input_dict["t1_map_file"],
-                        input_dict["t2_map_file"],
-                    ]
-
                     inputs.append(input_dict)
 
     # Create a workflow
-    wf = Workflow(name='register_maps_to_mni', base_dir=os.getcwd())
+    wf = Workflow(name='register_mni', base_dir=os.getcwd())
     wf.base_dir = args.temp_dir
 
     # create input node using entries in input_dict and

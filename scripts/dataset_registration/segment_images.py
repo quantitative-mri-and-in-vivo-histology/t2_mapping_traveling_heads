@@ -1,40 +1,93 @@
 import argparse
+import multiprocessing
 import os
 import shutil
-import multiprocessing
-import nibabel as nib
-from nipype.interfaces.ants import Atropos
-from nipype import Workflow, Node, Function
-from nipype.interfaces.utility import IdentityInterface
-from nipype.interfaces.fsl import Info
-from nipype.interfaces import fsl
-from nipype.interfaces.ants import ApplyTransforms
-from bids.layout import BIDSLayout
+
+import ants
+import antspynet
 import nipype.pipeline.engine as pe
-import nipype.interfaces.ants as ants
-import nipype.interfaces.mrtrix3 as mrtrix3
-from nodes.io import BidsOutputWriter
-from utils.io import write_minimal_bids_dataset_description
-from nipype.interfaces.utility import Select
-from nipype.interfaces.utility import Merge
-from nipype.interfaces.base import TraitedSpec, CommandLineInputSpec, File, CommandLine, traits
+from bids.layout import BIDSLayout
+from nipype import Function
 from nipype import Node, Workflow
+from nipype.interfaces.ants import Atropos
+from nipype.interfaces.base import (BaseInterface, BaseInterfaceInputSpec,
+                                    TraitedSpec, File, traits)
 from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
-                                    TraitedSpec, File, traits, isdefined)
+                                    isdefined)
+from nipype.interfaces.fsl import Threshold
+from nipype.interfaces.utility import IdentityInterface
+from nipype.interfaces.utility import Merge
 from nipype.utils.filemanip import fname_presuffix
-from nipype.interfaces.utility import Rename
+
+from nodes.io import BidsOutputWriter
+from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
+    DEFAULT_NIFTI_WRITE_EXT_ENTITY, \
+    PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE, \
+    PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
+from utils.io import write_minimal_bids_dataset_description, find_file
+
+
+class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
+    anatomical_image = File(exists=True,
+                            desc="Input anatomical image (e.g., T1-weighted)",
+                            mandatory=True)
+    output_image = File(
+        desc="Path to save the brain probability segmentation output",
+        usedefault=True)
+    modality = traits.Enum("t1", "t2", "flair",
+                           desc="Modality of the anatomical image",
+                           default="t1", usedefault=True)
+
+
+class AntspynetBrainExtractionOutputSpec(TraitedSpec):
+    output_image = File(exists=True,
+                         desc="Path to the brain probability segmentation")
+
+
+class AntspynetBrainExtraction(BaseInterface):
+    input_spec = AntspynetBrainExtractionInputSpec
+    output_spec = AntspynetBrainExtractionOutputSpec
+
+    def _run_interface(self, runtime):
+        # Load the input image using ANTs
+        anatomical_image = ants.image_read(self.inputs.anatomical_image)
+
+        # Set the default output path if not specified
+        if not isdefined(self.inputs.output_image):
+            self.inputs.output_image = os.path.join(os.getcwd(),
+                                                    "brain_probseg.nii.gz")
+
+        # Perform brain extraction using ANTsPyNet based on the specified modality
+        brain_probseg = antspynet.brain_extraction(
+            anatomical_image, modality=self.inputs.modality
+        )
+
+        # Save the output image
+        brain_probseg.to_filename(self.inputs.output_image)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['output_image'] = self.inputs.output_image
+        return outputs
 
 
 # Define the InputSpec
 class FslOrientSwapInputSpec(CommandLineInputSpec):
-    in_file = File(exists=True, mandatory=True, desc="Input file to swap orientation", position=0, argstr="%s")
-    out_file = File("output_swaporient.nii.gz", usedefault=True, desc="Output file after orientation swap", position=1, argstr="%s")
+    in_file = File(exists=True, mandatory=True,
+                   desc="Input file to swap orientation", position=0,
+                   argstr="%s")
+    out_file = File("output_swaporient.nii.gz", usedefault=True,
+                    desc="Output file after orientation swap", position=1,
+                    argstr="%s")
+
 
 # Define the OutputSpec
 class FslOrientSwapOutputSpec(TraitedSpec):
     out_file = File(exists=True, desc="Output file after orientation swap")
 
-# Define the custom CommandLine node for fslorient -swaporient
+
 # Define the custom CommandLine node for fslorient -swaporient
 class FslOrientSwap(CommandLine):
     _cmd = "fslorient -swaporient"
@@ -94,172 +147,151 @@ def copy_and_rename_files(file_list, format_str, base_dir=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process a dataset with optional steps.")
-    parser.add_argument('-i', '--bids_root', required=True,
+        description="Process 3D-EPI dataset.")
+    parser.add_argument('-i', '--input_dir', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-d', '--derivatives', nargs='*', required=False,
-                        help='One or more derivatives directories to use.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
-    parser.add_argument(
-        '--preprocess_only', action='store_true', default=False,
-        help="Preprocess the data only, without parameter estimation"
-    )
-    parser.add_argument('--subject', default=None,
-                        help='Specify a subject to process (e.g., sub-01). If not provided, all subjects are processed.')
-    parser.add_argument('--session', default=None,
-                        help='Specify a session to process (e.g., ses-01). If not provided, all sessions are processed.')
-    parser.add_argument('--run', default=None,
-                        help='Specify a run to process (e.g., run-01). If not provided, all runs are processed.')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
+    parser.add_argument('--derivatives', required=False, default=None,
+                        help='Path to the additional derivatives folder.')
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
+    parser.add_argument('--subject', help='Process a specific subject.')
+    parser.add_argument('--session', help='Process a specific session.')
+    parser.add_argument('--run', help='Process a specific run.')
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
-    # Define the reusable run settings in a dictionary
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
-
-    # entity_overrides = [
-    #     dict(suffix="probseg", desc="subcortical", acquisition=None),
-    #     dict(suffix="probseg", desc="cortical", acquisition=None),
-    # ]
+    # define the reusable run settings in a dictionary
+    run_settings = dict(plugin='MultiProc',
+                        plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
-    layout = BIDSLayout(args.bids_root,
-                        derivatives=args.derivatives,
+    layout = BIDSLayout(args.input_dir,
+                        derivatives=[args.derivatives],
                         validate=False)
 
+    # define pattern for output files
+    REGISTRATION_BIDS_OUTPUT_PATTERN = 'sub-{subject}/ses-{session}/{datatype}/' \
+                                       'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                                       '[_run-{run}][_space-{space}][_label-{label}]' \
+                                       '[_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+
+    # collect data for each independent subject-session-run combination
     inputs = []
-    subjects = layout.get_subjects()
-    # subjects = ["phy003"]
+    subjects = [args.subject] if args.subject else layout.get_subjects()
     for subject in subjects:
-        sessions = layout.get_sessions(subject=subject)
-        if sessions:  # Only add subjects with existing sessions
+        sessions = [args.session] if args.session else layout.get_sessions(
+            subject=subject)
+        if sessions:
             for session in sessions:
-                runs = layout.get_runs(subject=subject, session=session)
+                runs = [args.run] if args.run else layout.get_runs(
+                    subject=subject, session=session)
 
                 if len(runs) == 0:
                     runs = [None]
 
                 for run in runs:
+                    input_dict = dict(
+                        subject=subject,
+                        session=session,
+                        run=run
+                    )
 
-                    t1w_reg_target_files = layout.get(subject=subject,
-                                                      session=session,
-                                                      acquisition="T1wRef",
-                                                      suffix="T1w",
-                                                      extension="nii.gz",
-                                                      run=run)
-                    t1w_reg_target_files = [f for f in t1w_reg_target_files if
-                                            "processed" in str(f)]
-                    assert (len(t1w_reg_target_files) == 1)
-                    t1w_reg_target_file = t1w_reg_target_files[0]
+                    input_dict["t1w_reg_target_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space=None,
+                        **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY,
+                    )
 
-                    t1_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="T1map",
-                                              extension="nii.gz",
-                                              run=run)
-                    assert (len(t1_map_files) == 1)
-                    t1_map_file = t1_map_files[0]
+                    input_dict["brain_mask_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space=None,
+                        **PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY,
+                    )
 
-                    brain_mask_files = layout.get(subject=subject,
-                                                  session=session,
-                                                  desc="brain",
-                                                  suffix="mask",
-                                                  extension="nii.gz",
-                                                  run=run)
-                    assert (len(brain_mask_files) == 1)
-                    brain_mask_file = brain_mask_files[0]
+                    input_dict["sub_to_mni_transform_file"] = \
+                        find_file(layout,
+                                  subject=subject,
+                                  session=session,
+                                  run=run,
+                                  desc="SubjectToMNI152",
+                                  suffix="transform",
+                                  extension="mat")
 
-                    sub_to_mni_transform_files = layout.get(subject=subject,
-                                                            session=session,
-                                                            suffix="transform",
-                                                            desc="SubToMni",
-                                                            extension="mat",
-                                                            run=run)
-                    assert (len(sub_to_mni_transform_files) == 1)
-                    sub_to_mni_transform_file = sub_to_mni_transform_files[0]
+                    input_dict["sub_to_mni_warp_file"] = \
+                        find_file(layout,
+                                  subject=subject,
+                                  session=session,
+                                  run=run,
+                                  desc="SubjectToMNI152",
+                                  suffix="warp",
+                                  **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
-                    sub_to_mni_warp_files = layout.get(subject=subject,
-                                                       session=session,
-                                                       suffix="warp",
-                                                       desc="SubToMni",
-                                                       extension="nii.gz",
-                                                       run=run)
-                    assert (len(sub_to_mni_warp_files) == 1)
-                    sub_to_mni_warp_file = sub_to_mni_warp_files[0]
+                    input_dict["mni_to_sub_warp_file"] = \
+                        find_file(layout,
+                                  subject=subject,
+                                  session=session,
+                                  run=run,
+                                  desc="MNI152ToSubject",
+                                  suffix="warp",
+                                  **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
-                    mni_to_sub_warp_files = layout.get(subject=subject,
-                                                       session=session,
-                                                       suffix="warp",
-                                                       desc="SubToMni",
-                                                       extension="nii.gz",
-                                                       run=run)
-                    assert (len(mni_to_sub_warp_files) == 1)
-                    mni_to_sub_warp_file = mni_to_sub_warp_files[0]
+                    input_dict["wm_probseg_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space="subject",
+                        label="wmPrior",
+                        suffix="probseg",
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY
+                    )
 
-                    csf_probseg_files = layout.get(subject=subject,
-                                                       session=session,
-                                                       suffix="probseg",
-                                                       desc="csf",
-                                                       extension="nii.gz",
-                                                       run=run)
-                    assert (len(csf_probseg_files) == 1)
-                    csf_probseg_file = csf_probseg_files[0]
+                    input_dict["gm_probseg_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space="subject",
+                        label="gmPrior",
+                        suffix="probseg",
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY
+                    )
 
-                    gm_probseg_files = layout.get(subject=subject,
-                                                   session=session,
-                                                   suffix="probseg",
-                                                   desc="gm",
-                                                   extension="nii.gz",
-                                                   run=run)
-                    assert (len(gm_probseg_files) == 1)
-                    gm_probseg_file = gm_probseg_files[0]
+                    input_dict["csf_probseg_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space="subject",
+                        label="csfPrior",
+                        suffix="probseg",
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY
+                    )
 
-                    wm_probseg_files = layout.get(subject=subject,
-                                                   session=session,
-                                                   suffix="probseg",
-                                                   desc="wm",
-                                                   extension="nii.gz",
-                                                   run=run)
-                    assert (len(wm_probseg_files) == 1)
-                    wm_probseg_file = wm_probseg_files[0]
+                    inputs.append(input_dict)
 
-                    entity_overrides = [
-                        dict(suffix="probseg", desc="wmPosterior", acquisition=None),
-                        dict(suffix="probseg", desc="gmPosterior", acquisition=None),
-                        dict(suffix="probseg", desc="csfPosterior", acquisition=None)
-                    ]
-
-                    inputs.append(dict(subject=subject,
-                                       session=session,
-                                       run=run,
-                                       t1w_reg_target_file=t1w_reg_target_file,
-                                       t1_map_file=t1_map_file,
-                                       brain_mask_file=brain_mask_file,
-                                       sub_to_mni_transform_file=sub_to_mni_transform_file,
-                                       sub_to_mni_warp_file=sub_to_mni_warp_file,
-                                       mni_to_sub_warp_file=mni_to_sub_warp_file,
-                                       csf_probseg_file=csf_probseg_file,
-                                       gm_probseg_file=gm_probseg_file,
-                                       wm_probseg_file=wm_probseg_file,
-                                       entity_overrides=entity_overrides))
-
-    # Create a workflow
-    wf = Workflow(name='register_maps_to_mni', base_dir=os.getcwd())
-    wf.base_dir = args.base_dir
+    # set up workflow
+    wf = Workflow(name='segment_images', base_dir=os.getcwd())
+    wf.base_dir = args.temp_dir
 
     # set up bids input node
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
@@ -269,12 +301,13 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
+    # collect tissue segmentation priors
     merge_priors_node = pe.Node(Merge(3), name="merge_priors_node")
     wf.connect(input_node, "wm_probseg_file", merge_priors_node, "in1")
     wf.connect(input_node, "gm_probseg_file", merge_priors_node, "in2")
     wf.connect(input_node, "csf_probseg_file", merge_priors_node, "in3")
 
-    # Define the function node
+    # write tissue segmentation priors in ants format i.e. 'prior_%02d.nii.gz'
     copy_prior_node = Node(Function(
         input_names=['file_list', 'format_str'],
         output_names=['output_files', 'output_format_str'],
@@ -284,50 +317,73 @@ def main():
     wf.connect(merge_priors_node, "out", copy_prior_node, "file_list")
 
     dummy_prior_node = Node(IdentityInterface(fields=["prior_files"]),
-                      name='dummy_prior_node')
+                            name='dummy_prior_node')
     wf.connect(copy_prior_node, "output_files", dummy_prior_node, "prior_files")
 
-    # Create the Atropos node
+    # create brain mask
+    brain_extraction_node = pe.Node(AntspynetBrainExtraction(),
+                                    name="brain_extraction")
+    wf.connect(input_node, "t1w_reg_target_file",
+               brain_extraction_node, "anatomical_image")
+    brain_mask_threshold = pe.Node(Threshold(thresh=0.01),
+                                   name="brain_mask_threshold")
+    wf.connect(brain_extraction_node, "output_image",
+               brain_mask_threshold, "in_file")
+
+    # write brain_mask
+    brain_mask_writer = pe.Node(BidsOutputWriter(),
+                              name="brain_mask_writer")
+    brain_mask_writer.inputs.output_dir = args.output_dir
+    brain_mask_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+    brain_mask_writer.inputs.entity_overrides = dict(
+        desc="brainForTissueSegmentation",
+        space="subject",
+        suffix="mask",
+        **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(brain_mask_threshold, "out_file",
+               brain_mask_writer, "in_file")
+    wf.connect(input_node, "brain_mask_file",
+               brain_mask_writer, "template_file")
+
+    # segment brain into wm, gm and csf
     atropos = Node(Atropos(), name='atropos')
-    atropos.inputs.dimension = 3  # 3D image
-    atropos.inputs.number_of_tissue_classes = 3  # Segment into 3 tissue types (CSF, gray matter, white matter)
-    atropos.inputs.prior_weighting = 0.2  # Optional: Adjust if you have priors
-    atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'  # Output template for the tissue class probability maps
+    atropos.inputs.dimension = 3
+    atropos.inputs.number_of_tissue_classes = 3
+    atropos.inputs.prior_weighting = 0
+    atropos.inputs.output_posteriors_name_template = 'posteriors%02d.nii.gz'
     atropos.inputs.initialization = 'PriorProbabilityImages'
-    atropos.inputs.posterior_formulation = 'Socrates'  # Try different formulations
+    atropos.inputs.posterior_formulation = 'Socrates'
     atropos.inputs.mrf_smoothing_factor = 0.1
-    atropos.inputs.mrf_radius = [1, 1, 1]
+    atropos.inputs.mrf_radius = [1,1,1]
     atropos.inputs.likelihood_model = "Gaussian"
     atropos.inputs.prior_probability_threshold = 0
     atropos.inputs.convergence_threshold = 0
     atropos.inputs.n_iterations = 5
     atropos.inputs.save_posteriors = True
-
     wf.connect(copy_prior_node, "output_format_str", atropos, "prior_image")
-    wf.connect(input_node, "t1_map_file", atropos, "intensity_images")
-    wf.connect(input_node, "brain_mask_file", atropos, "mask_image")
+    wf.connect(input_node, "t1w_reg_target_file", atropos, "intensity_images")
+    wf.connect(brain_mask_threshold, "out_file", atropos, "mask_image")
 
-
-    # write outputs
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-
-    atlas_writer = pe.MapNode(BidsOutputWriter(),
-                              name="atlas_writer",
+    # write tissue segmentation probability maps
+    tissue_probseg_entity_overrides_common = dict(
+        suffix="probseg",
+        acquisition=None,
+        space="subject")
+    tissue_probseg_entity_overrides = [
+        dict(label="wm", **tissue_probseg_entity_overrides_common),
+        dict(label="gm", **tissue_probseg_entity_overrides_common),
+        dict(label="csf", **tissue_probseg_entity_overrides_common)
+    ]
+    tissue_segmentation_writer = pe.MapNode(BidsOutputWriter(),
+                              name="tissue_segmentation_writer",
                               iterfield=["in_file", "entity_overrides"])
-    atlas_writer.inputs.output_dir = args.output_derivative_dir
-    atlas_writer.inputs.pattern = out_pattern
-    atlas_writer.inputs.entity_overrides = entity_overrides
+    tissue_segmentation_writer.inputs.output_dir = args.output_dir
+    tissue_segmentation_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+    tissue_segmentation_writer.inputs.entity_overrides = tissue_probseg_entity_overrides
     wf.connect(atropos, "posteriors",
-               atlas_writer, "in_file")
+               tissue_segmentation_writer, "in_file")
     wf.connect(input_node, "brain_mask_file",
-               atlas_writer, "template_file")
-
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
+               tissue_segmentation_writer, "template_file")
 
     # Run the workflow
     wf.run(**run_settings)
