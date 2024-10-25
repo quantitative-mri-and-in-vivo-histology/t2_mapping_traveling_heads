@@ -96,7 +96,7 @@ def main():
                         run=run,
                         acquisition="dzneep3df0a107fT1w",
                         mt="off",
-                        echo=6,
+                        echo=1,
                         part="mag",
                         suffix="MPM",
                         **DEFAULT_NIFTI_READ_EXT_ENTITY)
@@ -260,6 +260,14 @@ def main():
     wf.connect(input_node, "t2w_phase_file",
                scale_phase_from_siemens_to_radian, "in_file")
 
+    # extract first T1w volume
+    t1w_first_volume_extractor = Node(fsl.ExtractROI(),
+                                      name="mag_first_volume_extractor")
+    t1w_first_volume_extractor.inputs.t_min = 0
+    t1w_first_volume_extractor.inputs.t_size = 1
+    wf.connect(input_node, "t1w_file",
+               t1w_first_volume_extractor, "in_file")
+
     # write B1 map
     b1_map_file_writer = pe.Node(BidsOutputWriter(),
                                  name="b1_map_file_formatter")
@@ -339,7 +347,7 @@ def main():
                               name="t1w_file_writer")
     t1w_file_writer.inputs.output_dir = args.output_dir
     t1w_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T1W
-    wf.connect(input_node, "t1w_file",
+    wf.connect(t1w_first_volume_extractor, "roi_file",
                t1w_file_writer, "in_file")
     wf.connect(input_node, "t1w_file",
                t1w_file_writer, "template_file")
