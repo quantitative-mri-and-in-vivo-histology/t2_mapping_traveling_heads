@@ -218,15 +218,14 @@ def main():
     mni_template = Info.standard_image(
         'MNI152_T1_1mm.nii.gz')  # Get MNI template path from FSL
     mni_template_mask = Info.standard_image(
-        'MNI152_T1_1mm_brain_mask.nii.gz')  # Get MNI template path from FSL
+        'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
 
-    # set up transforms (either computed of from files)
-    subject_to_mni_transforms_node = pe.Node(IdentityInterface(fields=[
-        "transforms"
-    ]), name="subject_to_mni_transforms_node")
-    mni_to_subject_transforms_node = pe.Node(IdentityInterface(fields=[
-        "transforms"
-    ]), name="mni_to_subject_transforms_node")
+    transforms_node = pe.Node(IdentityInterface(fields=[
+        "subject_to_mni_transforms",
+        "subject_to_mni_invert_flags",
+        "mni_to_subject_transforms",
+        "mni_to_subjectinvert_flags",
+    ]), name="transforms_node")
 
     if not args.reuse_registration:
 
@@ -302,10 +301,16 @@ def main():
                    reverse_warp_transform_writer, "template_file")
 
         # set forward and reverse transforms node using values from registration
+
         wf.connect(register_t1w, "reverse_forward_transforms",
-                   subject_to_mni_transforms_node, "transforms")
+                   transforms_node, "subject_to_mni_transforms")
         wf.connect(register_t1w, "reverse_transforms",
-                   mni_to_subject_transforms_node, "transforms")
+                   transforms_node, "mni_to_subject_transforms")
+        wf.connect(register_t1w, "reverse_transforms",
+                   transforms_node, "forward_invert_flags")
+        wf.connect(register_t1w, "reverse_invert_flags",
+                   transforms_node, "mni_to_subject_invert_flags")
+
 
     else:
         # use precomputed registration
@@ -328,15 +333,16 @@ def main():
 
         # set forward and reverse transforms node from merged transforms
         wf.connect(merge_subject_to_mni_transforms_node, "out",
-                   subject_to_mni_transforms_node, "transforms")
+                   transforms_node, "subject_to_mni_transforms")
         wf.connect(merge_mni_to_subject_transforms_node, "out",
-                   mni_to_subject_transforms_node, "transforms")
+                   transforms_node, "mni_to_subject_transforms")
+        transforms_node.inputs.subject_to_mni_invert_flags = [False, False]
+        transforms_node.inputs.mni_to_subject_invert_flags = [False, True]
 
-    subject_to_mni_transform_flags = [False, False]
+
     apply_transform_subject_to_mni_settings = dict(
         dimension=3,
         interpolation='Linear',
-        invert_transform_flags=subject_to_mni_transform_flags,
         reference_image=mni_template
     )
 
@@ -359,8 +365,10 @@ def main():
         apply_transform = pe.Node(ApplyTransforms(
             **apply_transform_subject_to_mni_settings),
             name=f"apply_transform_{sub_to_mni_writer_setting[0]}")
-        wf.connect(subject_to_mni_transforms_node, 'transforms',
+        wf.connect(transforms_node, 'subject_to_mni_transforms',
                    apply_transform, 'transforms')
+        wf.connect(transforms_node, 'subject_to_mni_invert_flags',
+                   apply_transform, 'invert_transform_flags')
         wf.connect(input_node, sub_to_mni_writer_setting[0],
                    apply_transform, 'input_image')
 
@@ -375,11 +383,9 @@ def main():
         wf.connect(input_node, "t1w_reg_target_file",
                    file_writer, "template_file")
 
-    mni_to_subject_transform_flags = [False, True]
     apply_transform_subject_to_mni_settings = dict(
         dimension=3,
         interpolation='Linear',
-        invert_transform_flags=mni_to_subject_transform_flags,
         input_image_type=3,
     )
 
@@ -390,8 +396,10 @@ def main():
             **apply_transform_subject_to_mni_settings),
             name=f"apply_transform_{label}")
         apply_transform.inputs.input_image = filename
-        wf.connect(mni_to_subject_transforms_node, 'transforms',
+        wf.connect(transforms_node, 'mni_to_subject_transforms',
                    apply_transform, 'transforms')
+        wf.connect(transforms_node, 'mni_to_subject_invert_flags',
+                   apply_transform, 'invert_transform_flags')
         wf.connect(input_node, 't1w_reg_target_file',
                    apply_transform, 'reference_image')
 
