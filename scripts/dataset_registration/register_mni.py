@@ -67,6 +67,18 @@ def main():
                                        'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
                                        '[_run-{run}][_space-{space}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
+    mni_atlases_bids_entities = dict(space="subject", suffix="probseg", acquisition=None)
+    mni_atlas_dir = os.path.abspath("./../../data/atlases")
+    mni_atlas_dict = dict(
+        subcortical=os.path.join(mni_atlas_dir, "HarvardOxford-sub-prob-1mm.nii.gz"),
+        cortical=os.path.join(mni_atlas_dir, "HarvardOxford-cort-prob-1mm.nii.gz"),
+        corticalLeft=os.path.join(mni_atlas_dir, "HarvardOxford-cort-left-prob-1mm.nii.gz"),
+        corticalRight=os.path.join(mni_atlas_dir, "HarvardOxford-cort-right-prob-1mm.nii.gz"),
+        wmPrior=os.path.join(mni_atlas_dir, "white_matter.nii.gz"),
+        gmPrior=os.path.join(mni_atlas_dir, "gray_matter.nii.gz"),
+        csfPrior=os.path.join(mni_atlas_dir, "csf.nii.gz"),
+    )
+
     # collect data for each independent subject-session-run combination
     inputs = []
     subjects = [args.subject] if args.subject else layout.get_subjects()
@@ -339,6 +351,7 @@ def main():
             space="mni", **PROCESSED_ENTITY_OVERRIDES_T2_MAP))
     ]
 
+    # transform and save subject images/maps in MNI space
     for sub_to_mni_writer_setting in sub_to_mni_writer_settings:
         # transform image to MNI space
         apply_transform = pe.Node(ApplyTransforms(
@@ -360,13 +373,36 @@ def main():
         wf.connect(input_node, "t1w_reg_target_file",
                    file_writer, "template_file")
 
+    mni_to_subject_transform_flags = [False, True]
+    apply_transform_subject_to_mni_settings = dict(
+        dimension=3,
+        interpolation='Linear',
+        invert_transform_flags=mni_to_subject_transform_flags,
+        input_image_type = 3,
+    )
 
-    # mni_to_subject_transform_flags = [False, True]
-    # apply_transform_mni_to_subject_settings = dict(
-    #     dimension=3,
-    #     interpolation='Linear',
-    #     invert_transform_flags=mni_to_subject_transform_flags,
-    # )
+    # transform and save atlases in subject space
+    for description, filename in mni_atlas_dict.items():
+        # transform image to subject space
+        apply_transform = pe.Node(ApplyTransforms(
+            **apply_transform_subject_to_mni_settings),
+            name=f"apply_transform_{description}")
+        apply_transform.inputs.input_image = filename
+        wf.connect(mni_to_subject_transforms_node, 'transforms',
+                   apply_transform, 'transforms')
+        wf.connect(input_node, 't1w_reg_target_file',
+                   apply_transform, 'reference_image')
+
+        # write image in subject space
+        file_writer = pe.Node(BidsOutputWriter(),
+                                        name=f"file_writer_{description}")
+        file_writer.inputs.output_dir = args.output_dir
+        file_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+        file_writer.inputs.entity_overrides = dict(desc=description, **mni_atlases_bids_entities)
+        wf.connect(apply_transform, "output_image",
+                   file_writer, "in_file")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   file_writer, "template_file")
 
     # Run the workflow
     wf.run(**run_settings)
