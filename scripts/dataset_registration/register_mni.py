@@ -65,18 +65,27 @@ def main():
     # define pattern for output files
     REGISTRATION_BIDS_OUTPUT_PATTERN = 'sub-{subject}/ses-{session}/{datatype}/' \
                                        'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                                       '[_run-{run}][_space-{space}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
+                                       '[_run-{run}][_space-{space}][_label-{label}]' \
+                                       '[_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
-    mni_atlases_bids_entities = dict(space="subject", suffix="probseg", acquisition=None)
+    mni_atlases_bids_entities = dict(space="subject", suffix="probseg",
+                                     acquisition=None)
     mni_atlas_dir = os.path.abspath("./../../data/atlases")
     mni_atlas_dict = dict(
-        subcortical=os.path.join(mni_atlas_dir, "HarvardOxford-sub-prob-1mm.nii.gz"),
-        cortical=os.path.join(mni_atlas_dir, "HarvardOxford-cort-prob-1mm.nii.gz"),
-        corticalLeft=os.path.join(mni_atlas_dir, "HarvardOxford-cort-left-prob-1mm.nii.gz"),
-        corticalRight=os.path.join(mni_atlas_dir, "HarvardOxford-cort-right-prob-1mm.nii.gz"),
-        wmPrior=os.path.join(mni_atlas_dir, "white_matter.nii.gz"),
-        gmPrior=os.path.join(mni_atlas_dir, "gray_matter.nii.gz"),
-        csfPrior=os.path.join(mni_atlas_dir, "csf.nii.gz"),
+        subcortical=os.path.join(mni_atlas_dir,
+                                 "space-MNI152_label-subcortical_desc-HarvardOxford_probseg.nii.gz"),
+        cortical=os.path.join(mni_atlas_dir,
+                              "space-MNI152_label-cortical_desc-HarvardOxford_probseg.nii.gz"),
+        corticalLeft=os.path.join(mni_atlas_dir,
+                                  "space-MNI152_label-corticalLeft_desc-HarvardOxford_probseg.nii.gz"),
+        corticalRight=os.path.join(mni_atlas_dir,
+                                   "space-MNI152_label-corticalRight_desc-HarvardOxford_probseg.nii.gz"),
+        wmPrior=os.path.join(mni_atlas_dir,
+                             "space-MNI152_label-wm_desc-SPM_probseg.nii.gz"),
+        gmPrior=os.path.join(mni_atlas_dir,
+                             "space-MNI152_label-gm_desc-SPM_probseg.nii.gz"),
+        csfPrior=os.path.join(mni_atlas_dir,
+                              "space-MNI152_label-csf_desc-SPM_probseg.nii.gz"),
     )
 
     # collect data for each independent subject-session-run combination
@@ -169,7 +178,7 @@ def main():
                                       subject=subject,
                                       session=session,
                                       run=run,
-                                      desc="SubToMni",
+                                      desc="SubjectToMNI152",
                                       suffix="transform",
                                       extension="mat")
 
@@ -178,7 +187,7 @@ def main():
                                       subject=subject,
                                       session=session,
                                       run=run,
-                                      desc="SubToMni",
+                                      desc="SubjectToMNI152",
                                       suffix="warp",
                                       **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
@@ -187,7 +196,7 @@ def main():
                                       subject=subject,
                                       session=session,
                                       run=run,
-                                      desc="MniToSub",
+                                      desc="MNI152ToSubject",
                                       suffix="warp",
                                       **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
@@ -251,7 +260,7 @@ def main():
         forward_affine_transform_writer.inputs.entity_overrides = dict(
             part=None,
             acquisition=None,
-            desc="SubToMni",
+            desc="SubjectToMNI152",
             suffix="transform",
             extension="mat")
         wf.connect(select_forward_affine_node, "out",
@@ -271,7 +280,7 @@ def main():
         forward_warp_transform_writer.inputs.output_dir = args.output_dir
         forward_warp_transform_writer.inputs.entity_overrides = dict(part=None,
                                                                      acquisition=None,
-                                                                     desc="SubToMni",
+                                                                     desc="SubjectToMNI152",
                                                                      suffix="warp",
                                                                      **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
         wf.connect(select_forward_warp_node, "out",
@@ -291,7 +300,7 @@ def main():
         reverse_warp_transform_writer.inputs.output_dir = args.output_dir
         reverse_warp_transform_writer.inputs.entity_overrides = dict(part=None,
                                                                      acquisition=None,
-                                                                     desc="MniToSub",
+                                                                     desc="MNI152ToSubject",
                                                                      suffix="warp",
                                                                      **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
         wf.connect(select_reverse_warp_node, "out",
@@ -340,15 +349,15 @@ def main():
 
     sub_to_mni_writer_settings = [
         ("t1w_reg_target_file", dict(
-            space="mni", **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE)),
+            space="MNI152", **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE)),
         ("r1_map_file", dict(
-            space="mni", **PROCESSED_ENTITY_OVERRIDES_R1_MAP)),
+            space="MNI152", **PROCESSED_ENTITY_OVERRIDES_R1_MAP)),
         ("r2_map_file", dict(
-            space="mni", **PROCESSED_ENTITY_OVERRIDES_R2_MAP)),
+            space="MNI152", **PROCESSED_ENTITY_OVERRIDES_R2_MAP)),
         ("t1_map_file", dict(
-            space="mni", **PROCESSED_ENTITY_OVERRIDES_T1_MAP)),
+            space="MNI152", **PROCESSED_ENTITY_OVERRIDES_T1_MAP)),
         ("t2_map_file", dict(
-            space="mni", **PROCESSED_ENTITY_OVERRIDES_T2_MAP))
+            space="MNI152", **PROCESSED_ENTITY_OVERRIDES_T2_MAP))
     ]
 
     # transform and save subject images/maps in MNI space
@@ -364,7 +373,7 @@ def main():
 
         # write image in MNI space
         file_writer = pe.Node(BidsOutputWriter(),
-                                        name=f"file_writer_{sub_to_mni_writer_setting[0]}")
+                              name=f"file_writer_{sub_to_mni_writer_setting[0]}")
         file_writer.inputs.output_dir = args.output_dir
         file_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
         file_writer.inputs.entity_overrides = sub_to_mni_writer_setting[1]
@@ -382,11 +391,11 @@ def main():
     )
 
     # transform and save atlases in subject space
-    for description, filename in mni_atlas_dict.items():
+    for label, filename in mni_atlas_dict.items():
         # transform image to subject space
         apply_transform = pe.Node(ApplyTransforms(
             **apply_transform_subject_to_mni_settings),
-            name=f"apply_transform_{description}")
+            name=f"apply_transform_{label}")
         apply_transform.inputs.input_image = filename
         wf.connect(mni_to_subject_transforms_node, 'transforms',
                    apply_transform, 'transforms')
@@ -395,10 +404,11 @@ def main():
 
         # write image in subject space
         file_writer = pe.Node(BidsOutputWriter(),
-                                        name=f"file_writer_{description}")
+                              name=f"file_writer_{label}")
         file_writer.inputs.output_dir = args.output_dir
         file_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
-        file_writer.inputs.entity_overrides = dict(desc=description, **mni_atlases_bids_entities)
+        file_writer.inputs.entity_overrides = dict(label=label,
+                                                   **mni_atlases_bids_entities)
         wf.connect(apply_transform, "output_image",
                    file_writer, "in_file")
         wf.connect(input_node, "t1w_reg_target_file",
