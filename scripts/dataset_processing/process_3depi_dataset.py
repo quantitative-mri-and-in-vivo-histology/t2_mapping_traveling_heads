@@ -96,7 +96,11 @@ def main():
                     runs = [None]
 
                 for run in runs:
-                    input_dict = dict()
+                    input_dict = dict(
+                        subject=subject,
+                        session=session,
+                        run=run
+                    )
 
                     (input_dict["t1w_file"],
                      input_dict["t1w_json_dict"]) = find_image_and_json(

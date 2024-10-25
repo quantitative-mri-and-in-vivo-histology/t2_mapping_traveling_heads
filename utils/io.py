@@ -67,6 +67,29 @@ def find_image_and_json(layout, **query_dict):
     return nifti_file, json_dict
 
 
+def find_file(layout, **query_dict):
+    """
+    Given a BIDS layout and query parameters, find the NIfTI image.
+
+    Parameters:
+    - layout: A BIDSLayout object.
+    - query_dict: A dictionary of query parameters for searching the BIDS dataset (e.g., subject, session, suffix, etc.).
+
+    Returns:
+    - A tuple (nifti_file, json_dict):
+      - nifti_file: The path to the NIfTI image file.
+    """
+    # Search for the NIfTI file
+    files = layout.get(**query_dict)
+    if len(files) != 1:
+        raise ValueError(
+            f"Expected one file, found {len(files)} for query {query_dict}. Files are: {files}")
+
+    file = files[0]
+
+    return file
+
+
 
 def get_common_parent_directory(file_list):
     from pathlib import Path
