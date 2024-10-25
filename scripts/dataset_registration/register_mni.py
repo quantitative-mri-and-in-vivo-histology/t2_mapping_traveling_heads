@@ -378,7 +378,7 @@ def main():
         dimension=3,
         interpolation='Linear',
         invert_transform_flags=mni_to_subject_transform_flags,
-        input_image_type = 3,
+        input_image_type=3,
     )
 
     # transform and save atlases in subject space
