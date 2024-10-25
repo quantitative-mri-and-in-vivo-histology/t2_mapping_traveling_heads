@@ -11,15 +11,15 @@ from nodes.io import BidsOutputWriter
 
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 from workflows.parameter_estimation import \
-    estimate_relaxation_ssfp_multi_file
+    estimate_relaxation_ssfp
 from workflows.processing import preprocess_ssfp_spgr, create_brain_mask
 from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
                                STANDARDIZED_ENTITY_OVERRIDES_T1W,
                                STANDARDIZED_ENTITY_OVERRIDES_T2W,
                                STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
-                               STANDARDIZED_ENTITY_OVERRIDES_B1_REF,
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF,
                                PROCESSED_ENTITY_OVERRIDES_B1_MAP,
-                               PROCESSED_ENTITY_OVERRIDES_B1_REF,
+                               PROCESSED_ENTITY_OVERRIDES_B1_ANAT_REF,
                                PROCESSED_ENTITY_OVERRIDES_T1W,
                                PROCESSED_ENTITY_OVERRIDES_T2W,
                                PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
@@ -157,7 +157,7 @@ def main():
                         session=session,
                         run=run,
                         extension="nii.gz",
-                        **STANDARDIZED_ENTITY_OVERRIDES_B1_REF)
+                        **STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF)
 
                     inputs.append(dict(subject=subject,
                                        session=session,
@@ -208,7 +208,7 @@ def main():
     b1_anat_ref_file_writer = pe.Node(BidsOutputWriter(),
                                       name="b1_anat_ref_file_writer")
     b1_anat_ref_file_writer.inputs.output_dir = args.output_dir
-    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_REF
+    b1_anat_ref_file_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_B1_ANAT_REF
     wf.connect(preprocess_ssfp_wf, "output_node.b1_anat_ref_file",
                b1_anat_ref_file_writer, "in_file")
     wf.connect(input_node, "b1_anat_ref_file",
@@ -253,7 +253,7 @@ def main():
                brain_mask_file_writer, "template_file")
 
     if not args.preprocess_only:
-        estimate_relaxation_ssfp_wf = estimate_relaxation_ssfp_multi_file()
+        estimate_relaxation_ssfp_wf = estimate_relaxation_ssfp()
 
         wf.connect([(preprocess_ssfp_wf, estimate_relaxation_ssfp_wf, [
             ('output_node.b1_map_file', 'input_node.b1_map_file'),
@@ -265,24 +265,41 @@ def main():
         wf.connect(create_brain_mask_wf, 'output_node.out_file',
                    estimate_relaxation_ssfp_wf, 'input_node.brain_mask_file')
 
-        # write output files
-        out_maps = dict(
-            R1Map="output_node.r1_map_file",
-            R2Map="output_node.r2_map_file",
-            T1Map="output_node.t1_map_file",
-            T2Map="output_node.t2_map_file"
-        )
-        for out_map_suffix, out_map_name in out_maps.items():
-            file_writer = pe.Node(BidsOutputWriter(),
-                                  name="file_writer_{}".format(out_map_suffix))
-            file_writer.inputs.output_dir = args.output_dir
-            file_writer.inputs.entity_overrides = dict(part=None,
-                                                       suffix=out_map_suffix,
-                                                       acquisition=None)
-            wf.connect(estimate_relaxation_ssfp_wf, out_map_name,
-                       file_writer, "in_file")
-            wf.connect(input_node, "t1w_reg_target_file",
-                       file_writer, "template_file")
+        r1_map_writer = pe.Node(BidsOutputWriter(),
+                                name="r1_map_writer")
+        r1_map_writer.inputs.output_dir = args.output_dir
+        r1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R1_MAP
+        wf.connect(estimate_relaxation_ssfp_wf, "output_node.r1_map_file",
+                   r1_map_writer, "in_file")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   r1_map_writer, "template_file")
+
+        r2_map_writer = pe.Node(BidsOutputWriter(),
+                                name="r2_map_writer")
+        r2_map_writer.inputs.output_dir = args.output_dir
+        r2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_R2_MAP
+        wf.connect(estimate_relaxation_ssfp_wf, "output_node.r2_map_file",
+                   r2_map_writer, "in_file")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   r2_map_writer, "template_file")
+
+        t1_map_writer = pe.Node(BidsOutputWriter(),
+                                name="t1_map_writer")
+        t1_map_writer.inputs.output_dir = args.output_dir
+        t1_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T1_MAP
+        wf.connect(estimate_relaxation_ssfp_wf, "output_node.t1_map_file",
+                   t1_map_writer, "in_file")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   t1_map_writer, "template_file")
+
+        t2_map_writer = pe.Node(BidsOutputWriter(),
+                                name="t2_map_writer")
+        t2_map_writer.inputs.output_dir = args.output_dir
+        t2_map_writer.inputs.entity_overrides = PROCESSED_ENTITY_OVERRIDES_T2_MAP
+        wf.connect(estimate_relaxation_ssfp_wf, "output_node.t2_map_file",
+                   t2_map_writer, "in_file")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   t2_map_writer, "template_file")
 
     wf.run(**run_settings)
 

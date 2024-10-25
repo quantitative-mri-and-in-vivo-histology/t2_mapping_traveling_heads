@@ -8,7 +8,7 @@ from nipype import Node
 from nipype.interfaces.utility import IdentityInterface
 
 from workflows.parameter_estimation import \
-    estimate_relaxation_ssfp_multi_file
+    estimate_relaxation_ssfp
 from workflows.processing import preprocess_ssfp_spgr, create_brain_mask
 from nodes.io import ExplicitDataSink
 from utils.io import get_nifti_fileparts
@@ -211,7 +211,7 @@ def main():
 
     if not args.preprocess_only:
         # estimate relaxation parameters
-        estimate_relaxation_ssfp_wf = estimate_relaxation_ssfp_multi_file()
+        estimate_relaxation_ssfp_wf = estimate_relaxation_ssfp()
         wf.connect([(preprocess_ssfp_wf, estimate_relaxation_ssfp_wf, [
             ('output_node.b1_map_file', 'input_node.b1_map_file'),
             ('output_node.t1w_files', 'input_node.t1w_files'),
