@@ -7,10 +7,12 @@ from bids.layout import BIDSLayout
 from nipype import Workflow, Node
 from nipype.interfaces.fsl import Info
 from nipype.interfaces.utility import IdentityInterface, Select, Merge
-from nipype.interfaces.ants import ApplyTransforms
+from nipype.interfaces.ants import ApplyTransforms, N4BiasFieldCorrection
 
 from nodes.registration import \
-    create_default_ants_rigid_affine_syn_registration_node
+    create_default_ants_rigid_affine_syn_registration_node, \
+    create_default_ants_rigid_double_affine_syn_registration_node, \
+    create_default_ants_rigid_affine_registration_node
 from nodes.io import BidsOutputWriter
 from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
     DEFAULT_NIFTI_WRITE_EXT_ENTITY, \
@@ -219,6 +221,8 @@ def main():
         'MNI152_T1_1mm.nii.gz')  # Get MNI template path from FSL
     mni_template_mask = Info.standard_image(
         'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
+    # mni_template_mask_fine = Info.standard_image(
+    #     'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
 
     transforms_node = pe.Node(IdentityInterface(fields=[
         "subject_to_mni_transforms",
@@ -229,14 +233,23 @@ def main():
 
     if not args.reuse_registration:
 
+        # remove low frequency bias
+        n4_bias_field_correction = pe.Node(N4BiasFieldCorrection(
+            dimension=3
+        ),
+            name="n4_bias_field_correction")
+        wf.connect(input_node, "t1w_reg_target_file",
+                   n4_bias_field_correction, "input_image")
+
         # compute registration
         register_t1w = pe.Node(
             create_default_ants_rigid_affine_syn_registration_node(),
             name="register_t1w")
         register_t1w.inputs.fixed_image = mni_template
-        register_t1w.inputs.fixed_image_masks = ["NULL", mni_template_mask,
+        register_t1w.inputs.fixed_image_masks = ["NULL", "NULL",
                                                  mni_template_mask]
-        wf.connect(input_node, "t1w_reg_target_file", register_t1w,
+        # register_t1w.inputs.use_histogram_matching = True
+        wf.connect(n4_bias_field_correction, "output_image", register_t1w,
                    "moving_image")
 
         # get affine transform from list of transforms
@@ -338,7 +351,6 @@ def main():
                    transforms_node, "mni_to_subject_transforms")
         transforms_node.inputs.subject_to_mni_invert_flags = [False, False]
         transforms_node.inputs.mni_to_subject_invert_flags = [False, True]
-
 
     apply_transform_subject_to_mni_settings = dict(
         dimension=3,
