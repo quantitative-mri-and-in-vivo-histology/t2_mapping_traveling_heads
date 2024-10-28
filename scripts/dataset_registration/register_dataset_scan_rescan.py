@@ -1,81 +1,187 @@
 import argparse
 import os
 import multiprocessing
+import ants
+import antspynet
+from nipype.interfaces.fsl import ApplyMask
 from nipype import Workflow, Node, Function
 from nipype.interfaces.utility import IdentityInterface
 from nipype.interfaces.fsl import Info
 from nipype.interfaces.ants import ApplyTransforms
 from bids.layout import BIDSLayout
 import nipype.pipeline.engine as pe
-import nipype.interfaces.ants as ants
+from nipype.interfaces.base import (BaseInterface, BaseInterfaceInputSpec,
+                                    TraitedSpec, File, traits)
+from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
+                                    isdefined)
+from nipype.interfaces.fsl import Threshold
 from nodes.io import BidsOutputWriter
 from utils.io import write_minimal_bids_dataset_description
 from nipype.interfaces.utility import Select
+from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
+    DEFAULT_NIFTI_WRITE_EXT_ENTITY, \
+    PROCESSED_ENTITY_OVERRIDES_R1_MAP, \
+    PROCESSED_ENTITY_OVERRIDES_R2_MAP, \
+    PROCESSED_ENTITY_OVERRIDES_T1_MAP, \
+    PROCESSED_ENTITY_OVERRIDES_T2_MAP, \
+    PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE, \
+    PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
+from nipype.interfaces.base import (
+    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, InputMultiPath, traits, isdefined
+)
+from nipype.utils.filemanip import fname_presuffix
+import ants
+import os
 
 
-# Function to average two affine transformations stored in .mat files
-def average_affine_mat_files(mat_file_A2B, mat_file_B2A, output_mat_file):
-    import scipy
+class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
+    anatomical_image = File(exists=True,
+                            desc="Input anatomical image (e.g., T1-weighted)",
+                            mandatory=True)
+    output_image = File(
+        desc="Path to save the brain probability segmentation output",
+        usedefault=True)
+    modality = traits.Enum("t1", "t2", "flair",
+                           desc="Modality of the anatomical image",
+                           default="t1", usedefault=True)
 
-    # Load the .mat files using scipy.io
-    affineA2B = scipy.io.loadmat(mat_file_A2B)[
-        'AffineTransform_double_3_3']  # Example key for 3D rigid transform
-    affineB2A = scipy.io.loadmat(mat_file_B2A)[
-        'AffineTransform_double_3_3']  # Adjust key if needed
 
-    # Average the two affine matrices
-    avg_affine = (affineA2B + affineB2A) / 2.0
+class AntspynetBrainExtractionOutputSpec(TraitedSpec):
+    output_image = File(exists=True,
+                         desc="Path to the brain probability segmentation")
 
-    # Save the averaged matrix back into a .mat file with the necessary format
-    scipy.io.savemat(output_mat_file,
-                     {'AffineTransform_double_3_3': avg_affine})
-    print(f"Averaged affine matrix saved to {output_mat_file}")
-    return output_mat_file
+
+class AntspynetBrainExtraction(BaseInterface):
+    input_spec = AntspynetBrainExtractionInputSpec
+    output_spec = AntspynetBrainExtractionOutputSpec
+
+    def _run_interface(self, runtime):
+        # Load the input image using ANTs
+        anatomical_image = ants.image_read(self.inputs.anatomical_image)
+
+        # Set the default output path if not specified
+        if not isdefined(self.inputs.output_image):
+            self.inputs.output_image = os.path.join(os.getcwd(),
+                                                    "brain_probseg.nii.gz")
+
+        # Perform brain extraction using ANTsPyNet based on the specified modality
+        brain_probseg = antspynet.brain_extraction(
+            anatomical_image, modality=self.inputs.modality
+        )
+
+        # Save the output image
+        brain_probseg.to_filename(self.inputs.output_image)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['output_image'] = self.inputs.output_image
+        return outputs
+
+
+class AntsBuildTemplateInputSpec(BaseInterfaceInputSpec):
+    input_images = InputMultiPath(
+        File(exists=True),
+        desc="List of input images to build the template from",
+        mandatory=True
+    )
+    output_template = File(
+        desc="Path to save the final template image",
+        usedefault=True
+    )
+    iterations = traits.Int(
+        desc="Number of iterations for template construction",
+        default_value=5,
+        usedefault=True
+    )
+    gradient_step = traits.Float(
+        desc="Gradient step size for template construction",
+        default_value=0.2,
+        usedefault=True
+    )
+
+
+class AntsBuildTemplateOutputSpec(TraitedSpec):
+    output_template = File(exists=True, desc="Path to the final template image")
+
+
+class AntsBuildTemplate(BaseInterface):
+    input_spec = AntsBuildTemplateInputSpec
+    output_spec = AntsBuildTemplateOutputSpec
+
+    def _run_interface(self, runtime):
+        # Load input images using ANTs
+        images = [ants.image_read(img) for img in self.inputs.input_images]
+
+        # Set the default output path if not specified
+        if not isdefined(self.inputs.output_template):
+            self.inputs.output_template = os.path.join(
+                os.getcwd(), "template_image.nii.gz"
+            )
+
+        # Perform template creation using ants.build_template
+        template = ants.build_template(
+            image_list=images,
+            iterations=self.inputs.iterations,
+            gradient_step=self.inputs.gradient_step
+        )
+
+        # Save the template image
+        template.to_filename(self.inputs.output_template)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['output_template'] = self.inputs.output_template
+        return outputs
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process a dataset with optional steps.")
-    parser.add_argument('-i', '--bids_root', required=True,
+        description="Process 3D-EPI dataset.")
+    parser.add_argument('-i', '--input_dir', required=True,
                         help='Path to the BIDS root directory of the dataset.')
-    parser.add_argument('-d', '--derivatives', nargs='*', required=False,
-                        help='One or more derivatives directories to use.')
-    parser.add_argument('-o', '--output_derivative_dir', required=True,
+    parser.add_argument('-o', '--output_dir', required=True,
                         help='Path to the output derivatives folder.')
-    parser.add_argument('--base_dir', default=os.getcwd(),
-                        help='Base directory for processing (default: current working directory).')
-    parser.add_argument(
-        '--preprocess_only', action='store_true', default=False,
-        help="Preprocess the data only, without parameter estimation"
-    )
-    parser.add_argument('--subject', default=None,
-                        help='Specify a subject to process (e.g., sub-01). If not provided, all subjects are processed.')
-    parser.add_argument('--session', default=None,
-                        help='Specify a session to process (e.g., ses-01). If not provided, all sessions are processed.')
-    parser.add_argument('--run', default=None,
-                        help='Specify a run to process (e.g., run-01). If not provided, all runs are processed.')
+    parser.add_argument('-t', '--temp_dir', default=os.getcwd(),
+                        help='Directory for intermediate outputs (default: current working directory).')
+    parser.add_argument('--derivatives', required=False, default=None,
+                        help='Path to the additional derivatives folder.')
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
+    parser.add_argument('--subject', help='Process a specific subject.')
+    parser.add_argument('--session', help='Process a specific session.')
+    parser.add_argument('--run', help='Process a specific run.')
+    parser.add_argument(
+        '--reuse_registration', action='store_true', default=False,
+        help="Reuse precomputed registration"
+    )
     args = parser.parse_args()
 
     # write minimal dataset description for output derivatives
-    os.makedirs(args.output_derivative_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
     write_minimal_bids_dataset_description(
-        dataset_root=args.output_derivative_dir,
-        dataset_name=os.path.dirname(args.output_derivative_dir)
+        dataset_root=args.output_dir,
+        dataset_name=os.path.dirname(args.output_dir)
     )
 
     # Define the reusable run settings in a dictionary
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
+    run_settings = dict(plugin='MultiProc',
+                        plugin_args={'n_procs': args.n_procs})
 
     # collect inputs
-    layout = BIDSLayout(args.bids_root,
-                        derivatives=args.derivatives,
+    layout = BIDSLayout(args.input_dir,
+                        derivatives=[args.derivatives],
                         validate=False)
+
+    # define pattern for output files
+    REGISTRATION_BIDS_OUTPUT_PATTERN = 'sub-{subject}/ses-{session}/{datatype}/' \
+                                       'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
+                                       '[_run-{run}][_space-{space}][_label-{label}]' \
+                                       '[_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
     inputs = []
     subjects = layout.get_subjects()
@@ -90,37 +196,35 @@ def main():
                     continue
 
                 for run in runs:
-                    t1_map_files = layout.get(subject=subject,
-                                           session=session,
-                                           suffix="T1map",
-                                           extension="nii.gz")
-                    assert(len(t1_map_files) == 2)
-
-                    t2_map_files = layout.get(subject=subject,
-                                           session=session,
-                                           suffix="T2map",
-                                           extension="nii.gz")
-                    assert(len(t2_map_files) == 2)
-
-                    r1_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="R1map",
-                                              extension="nii.gz")
-                    assert (len(r1_map_files) == 2)
-
-                    r2_map_files = layout.get(subject=subject,
-                                              session=session,
-                                              suffix="R2map",
-                                              extension="nii.gz")
-                    assert (len(r2_map_files) == 2)
+                    # t1_map_files = layout.get(subject=subject,
+                    #                        session=session,
+                    #                        suffix="T1map",
+                    #                        extension="nii.gz")
+                    # assert(len(t1_map_files) == 2)
+                    #
+                    # t2_map_files = layout.get(subject=subject,
+                    #                        session=session,
+                    #                        suffix="T2map",
+                    #                        extension="nii.gz")
+                    # assert(len(t2_map_files) == 2)
+                    #
+                    # r1_map_files = layout.get(subject=subject,
+                    #                           session=session,
+                    #                           suffix="R1map",
+                    #                           extension="nii.gz")
+                    # assert (len(r1_map_files) == 2)
+                    #
+                    # r2_map_files = layout.get(subject=subject,
+                    #                           session=session,
+                    #                           suffix="R2map",
+                    #                           extension="nii.gz")
+                    # assert (len(r2_map_files) == 2)
 
                     t1w_reg_target_files = layout.get(subject=subject,
                                               session=session,
-                                              acquisition="T1wRef",
-                                              suffix="T1w",
-                                              extension="nii.gz")
-                    t1w_reg_target_files = [f for f in t1w_reg_target_files if
-                                            "processed" in str(f)]
+                                              **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
+                                              **DEFAULT_NIFTI_READ_EXT_ENTITY)
+
                     assert (len(t1w_reg_target_files) == 2)
 
                     # relaxation_maps = [r1_map_files, r2_map_files, t1_map_files, t2_map_files]
@@ -137,18 +241,19 @@ def main():
                                        run=run,
                                        t1w_scan_file=t1w_reg_target_files[0],
                                        t1w_rescan_file=t1w_reg_target_files[1],
-                                       t1_map_files=t1_map_files,
-                                       t2_map_files=t2_map_files,
-                                       r1_map_files=r1_map_files,
-                                       r2_map_files=r2_map_files))
+                                       t1w_reg_target_files=t1w_reg_target_files))
+                                       # t1_map_files=t1_map_files,
+                                       # t2_map_files=t2_map_files,
+                                       # r1_map_files=r1_map_files,
+                                       # r2_map_files=r2_map_files))
                                        # relaxation_maps=relaxation_maps,
                                        # relaxation_map_entities=relaxation_map_entities))
 
     print(inputs)
 
     # Create a workflow
-    wf = Workflow(name='register_maps_to_mni', base_dir=os.getcwd())
-    wf.base_dir = args.base_dir
+    wf = Workflow(name='register_scan_rescan', base_dir=os.getcwd())
+    wf.base_dir = args.temp_dir
 
     # set up bids input node
     input_node = Node(IdentityInterface(fields=list(inputs[0].keys())),
@@ -158,186 +263,70 @@ def main():
         (key, [input_dict[key] for input_dict in inputs]) for key in keys]
     input_node.synchronize = True
 
-    mni_template = Info.standard_image(
-        'MNI152_T1_2mm.nii.gz')  # Get MNI template path from FSL
-    mni_template_mask = Info.standard_image(
-        'MNI152_T1_2mm_brain_mask.nii.gz')  # Get MNI template path from FSL
+    # create brain mask
+    brain_extraction_node = pe.MapNode(AntspynetBrainExtraction(),
+                                    name="brain_extraction",
+                                       iterfield=["anatomical_image"])
+    wf.connect(input_node, "t1w_reg_target_files",
+               brain_extraction_node, "anatomical_image")
+    brain_mask_threshold = pe.MapNode(Threshold(thresh=0.01, args="-bin"),
+                                   name="brain_mask_threshold",
+                                      iterfield=["in_file"])
+    wf.connect(brain_extraction_node, "output_image",
+               brain_mask_threshold, "in_file")
 
-    # Adjust the ants.Registration node to perform symmetric registration
-    ants_reg_params = dict(
-        dimension=3,  # 3D registration
-        output_transform_prefix='output_prefix_',  # Prefix for output files
-        transforms=['Rigid', 'Affine', 'BSplineSyN'],  # Transformation types
-        transform_parameters=[(0.1,), (0.1,), (0.1, 3, 0)],
-        # Parameters for each transform
-        metric=['MI', 'MI', 'CC'],
-        # Metrics for each stage: MI for Rigid/Affine, CC for SyN
-        metric_weight=[1, 1, 1],  # Weights for the metrics
-        radius_or_number_of_bins=[32, 32, 4],
-        # Number of bins for MI and radius for CC
-        sampling_strategy=['Regular', 'Regular', None],
-        # Sampling strategies for each stage
-        sampling_percentage=[0.25, 0.25, None],  # Sampling percentages for MI
-        convergence_threshold=[1e-6, 1e-6, 1e-6],  # Convergence thresholds
-        convergence_window_size=[10, 10, 10],  # Convergence window sizes
-        number_of_iterations=[[1000, 500, 250, 100], [1000, 500, 250, 100],
-                              [100, 70, 50, 20]],
-        # Iterations for each resolution level
-        shrink_factors=[[8, 4, 2, 1], [8, 4, 2, 1], [6, 4, 2, 1]],
-        # Shrink factors for the multi-resolution scheme
-        smoothing_sigmas=[[3, 2, 1, 0], [3, 2, 1, 0], [3, 2, 1, 0]],
-        # Smoothing sigmas for the multi-resolution scheme
-        interpolation='Linear',  # Linear interpolation
-        output_warped_image='output_warped_image.nii.gz',  # Output warped image
-        output_inverse_warped_image='output_inverse_warped_image.nii.gz',
-        # Output inverse warped image
-        use_histogram_matching=True,
-        # Use histogram matching for multi-modal images
-        winsorize_upper_quantile=0.995,
-        # Winsorize image intensities (upper quantile)
-        winsorize_lower_quantile=0.005,
-        # Winsorize image intensities (lower quantile)
-        initial_moving_transform_com=True,  # Align centers of mass
-        fixed_image=mni_template
-        # num_threads=1
-    )
+    # write brain_mask
+    brain_mask_writer = pe.MapNode(BidsOutputWriter(),
+                              name="brain_mask_writer",
+                                   iterfield=["in_file", "template_file"])
+    brain_mask_writer.inputs.output_dir = args.output_dir
+    brain_mask_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+    brain_mask_writer.inputs.entity_overrides = dict(
+        acquisition=None,
+        desc="brainTight",
+        space="subject",
+        suffix="mask",
+        **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(brain_mask_threshold, "out_file",
+               brain_mask_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               brain_mask_writer, "template_file")
 
-    register_t1w = pe.Node(ants.Registration(**ants_reg_params),
-                           name="register_t1w")
+    # apply mask
+    apply_mask = pe.MapNode(ApplyMask(),
+                            name="apply_mask",
+                            iterfield=["in_file", "mask_file"])
+    wf.connect(brain_mask_threshold, "out_file",
+               apply_mask, "mask_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               apply_mask, "in_file")
 
+    # generate template
+    build_template = pe.Node(AntsBuildTemplate(),
+                             name="build_template")
+    build_template.inputs.iterations = 3
+    wf.connect(apply_mask, "out_file",
+               build_template, "input_images")
 
-    wf.connect(input_node, "t1w_scan_file", register_t1w, "moving_image")
-    wf.connect(input_node, "t1w_rescan_file", register_t1w, "fixed_image")
-
-    avg_transform = pe.Node(Function(
-        input_names=['mat_file_A2B', 'mat_file_B2A', 'output_mat_file'],
-        output_names=['output_mat_file'],
-        function=average_affine_mat_files),
-                            name="avg_transform")
-    avg_transform.inputs.output_mat_file = 'midspace_affine.mat'
-
-    # Step 3: Apply the Midpoint Transform to Image A and Image B
-    apply_A_to_mid = pe.Node(ApplyTransforms(), name="apply_A_to_mid")
-    apply_A_to_mid.inputs.dimension = 3
-    apply_A_to_mid.inputs.reference_image = 'imageB'  # or another reference image
-
-    apply_B_to_mid = pe.Node(ApplyTransforms(), name="apply_B_to_mid")
-    apply_B_to_mid.inputs.dimension = 3
-    apply_B_to_mid.inputs.reference_image = 'imageA'  # or another reference image
-
-    # Connect the workflow
-    wf.connect([
-        (inputnode, reg_A2B,
-         [('imageA', 'fixed_image'), ('imageB', 'moving_image')]),
-        (reg_A2B, avg_transform, [('composite_transform', 'mat_file_A2B'), (
-        'inverse_composite_transform', 'mat_file_B2A')]),
-        (avg_transform, apply_A_to_mid, [('output_mat_file', 'transforms')]),
-        (avg_transform, apply_B_to_mid, [('output_mat_file', 'transforms')]),
-        (inputnode, apply_A_to_mid, [('imageA', 'input_image')]),
-        (inputnode, apply_B_to_mid, [('imageB', 'input_image')])
-    ])
-
-    # # Define the ApplyTransforms node
-    # apply_transforms = pe.MapNode(ApplyTransforms(), name="apply_transforms",
-    #                               iterfield=["input_image"])
-    # apply_transforms.inputs.dimension = 3  # 3D image
-    # apply_transforms.inputs.reference_image = mni_template
-    # apply_transforms.inputs.interpolation = 'BSpline'
-    #
-    # wf.connect(register_t1w, 'reverse_forward_transforms',
-    #            apply_transforms, 'transforms')
-    # wf.connect(input_node, 'relaxation_maps',
-    #            apply_transforms, 'input_image')
-    #
-    out_pattern = 'sub-{subject}/ses-{session}/{datatype}/' \
-                  'sub-{subject}_ses-{session}[_acq-{acquisition}]' \
-                  '[_run-{run}][_desc-{desc}][_part-{part}]_{suffix}.{extension}'
-    #
-    # t1w_reg_target_writer = pe.Node(BidsOutputWriter(),
-    #                                 name="t1w_reg_target_writer")
-    # t1w_reg_target_writer.inputs.output_dir = args.output_derivative_dir
-    # t1w_reg_target_writer.inputs.pattern = out_pattern
-    # t1w_reg_target_writer.inputs.entity_overrides = dict(part=None,
-    #                                                      acquisition="T1wRef")
-    # wf.connect(register_t1w, "warped_image",
-    #            t1w_reg_target_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            t1w_reg_target_writer, "template_file")
-    #
-    # map_writer = pe.MapNode(BidsOutputWriter(),
-    #                         name="map_writer",
-    #                         iterfield=["in_file", "entity_overrides"])
-    # map_writer.inputs.output_dir = args.output_derivative_dir
-    # map_writer.inputs.pattern = out_pattern
-    # wf.connect(apply_transforms, "output_image",
-    #            map_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            map_writer, "template_file")
-    # wf.connect(input_node, "relaxation_map_entities",
-    #            map_writer, "entity_overrides")
-
-    # select_forward_affine_node = pe.Node(Select(index=1),
-    #                                      name="select_forward_affine_node")
-    # wf.connect(register_t1w, "reverse_forward_transforms",
-    #            select_forward_affine_node, "inlist")
-    # forward_affine_transform_writer = pe.Node(BidsOutputWriter(),
-    #                                           name="forward_affine_transform_writer")
-    # forward_affine_transform_writer.inputs.output_dir = args.output_derivative_dir
-    # forward_affine_transform_writer.inputs.pattern = out_pattern
-    # forward_affine_transform_writer.inputs.entity_overrides = dict(part=None,
-    #                                                                acquisition=None,
-    #                                                                desc="SubToMni",
-    #                                                                suffix="transform",
-    #                                                                extension="mat")
-    # wf.connect(select_forward_affine_node, "out",
-    #            forward_affine_transform_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            forward_affine_transform_writer, "template_file")
-    #
-    # select_forward_warp_node = pe.Node(Select(index=0), name="select_warp_node")
-    # wf.connect(register_t1w, "reverse_forward_transforms",
-    #            select_forward_warp_node, "inlist")
-    # forward_warp_transform_writer = pe.Node(BidsOutputWriter(),
-    #                                         name="forward_warp_transform_writer")
-    # forward_warp_transform_writer.inputs.output_dir = args.output_derivative_dir
-    # forward_warp_transform_writer.inputs.pattern = out_pattern
-    # forward_warp_transform_writer.inputs.entity_overrides = dict(part=None,
-    #                                                              acquisition=None,
-    #                                                              desc="SubToMni",
-    #                                                              suffix="warp",
-    #                                                              extension="nii.gz")
-    # wf.connect(select_forward_warp_node, "out",
-    #            forward_warp_transform_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            forward_warp_transform_writer, "template_file")
-    #
-    # select_reverse_warp_node = pe.Node(Select(index=1),
-    #                                    name="select_reverse_warp_node")
-    # wf.connect(register_t1w, "reverse_transforms",
-    #            select_reverse_warp_node, "inlist")
-    # reverse_warp_transform_writer = pe.Node(BidsOutputWriter(),
-    #                                         name="reverse_warp_transform_writer")
-    # reverse_warp_transform_writer.inputs.output_dir = args.output_derivative_dir
-    # reverse_warp_transform_writer.inputs.pattern = out_pattern
-    # reverse_warp_transform_writer.inputs.entity_overrides = dict(part=None,
-    #                                                              acquisition=None,
-    #                                                              desc="MniToSub",
-    #                                                              suffix="warp",
-    #                                                              extension="nii.gz")
-    # wf.connect(select_reverse_warp_node, "out",
-    #            reverse_warp_transform_writer, "in_file")
-    # wf.connect(input_node, "t1w_reg_target_file",
-    #            reverse_warp_transform_writer, "template_file")
+    # write brain_mask
+    template_writer = pe.Node(BidsOutputWriter(),
+                              name="template_writer",
+                                   iterfield=["in_file", "template_file"])
+    template_writer.inputs.output_dir = args.output_dir
+    template_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+    template_writer.inputs.entity_overrides = dict(
+        acquisition=None,
+        desc="template",
+        space="midScanRescan",
+        suffix="T1w",
+        **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(build_template, "output_template",
+               template_writer, "in_file")
+    wf.connect(input_node, "t1w_scan_file",
+               template_writer, "template_file")
 
 
-    run_settings = {
-        'plugin': 'MultiProc',
-        'plugin_args': {'n_procs': args.n_procs}
-    }
-
-    # Run the workflow
     wf.run(**run_settings)
-    # wf.run()
 
 
 if __name__ == "__main__":

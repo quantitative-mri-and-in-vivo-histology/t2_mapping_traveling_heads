@@ -27,6 +27,7 @@ from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
 from utils.io import write_minimal_bids_dataset_description, find_file
 
 
+
 class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
     anatomical_image = File(exists=True,
                             desc="Input anatomical image (e.g., T1-weighted)",
