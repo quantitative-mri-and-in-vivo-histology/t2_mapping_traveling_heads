@@ -430,7 +430,7 @@ if __name__ == "__main__":
                      range(num_regions)]  # Use the same color for each region
 
     # Create a 2xN grid where the first row is for boxplots and the second row is for inter-hemispheric plots
-    fig, axes = plt.subplots(2, num_sites, figsize=(15, 10), sharey='row')
+    fig, axes = plt.subplots(2, num_sites, figsize=(15, 10))
 
     # First row: Boxplots for each site
     for site_idx, site_name in enumerate(dataset_names):
@@ -484,8 +484,8 @@ if __name__ == "__main__":
         axes[0, site_idx].set_ylim([0, 40])  # Adjust the y-axis limit as needed
         # axes[0, site_idx].set_ylim([0.5, 1.5])  # Adjust the y-axis limit as needed
         axes[0, site_idx].set_xlabel("Region")
-        if site_idx == 0:
-            axes[0, site_idx].set_ylabel("R2 [1/s]")
+        # if site_idx == 0:
+        axes[0, site_idx].set_ylabel("R2 [1/s]")
 
     # Second row: Inter-hemispheric differences for each site
     for site_idx, site_name in enumerate(dataset_names):
@@ -534,33 +534,67 @@ if __name__ == "__main__":
         # hemisphere_differences = left_means - right_means
 
         # Plot the differences as horizontal bars with the same color as the region
-        for i, diff in enumerate(hemisphere_differences_per_region_mean):
-            axes[1, site_idx].barh(i,
-                                   hemisphere_differences_per_region_mean[i],
-                                   color=region_colors[i],
-                                   edgecolor='black')
-            axes[1, site_idx].errorbar(hemisphere_differences_per_region_mean[i], i, xerr=hemisphere_differences_per_region_std[i], fmt='none', ecolor='black',
-                        capsize=3)
+        # for i, diff in enumerate(hemisphere_differences_per_region_mean):
+        #     axes[1, site_idx].barh(i,
+        #                            hemisphere_differences_per_region_mean[i],
+        #                            color=region_colors[i],
+        #                            edgecolor='black')
+        #     axes[1, site_idx].errorbar(hemisphere_differences_per_region_mean[i], i, xerr=hemisphere_differences_per_region_std[i], fmt='none', ecolor='black',
+        #                 capsize=3)
 
         # Invert y-axis to match the order of regions with the boxplots
 
 
+
+        # Prepare data for the boxplot (grouped by region)
+        data = [pooled_region_data[region_name][site_name] for region_name in
+                region_names]
+
+        # data_array = np.array()
+
+        # data_cov = (np.percentile(data, 75) - np.percentile(data, 25))/np.median(data)
+        #
+        # all_data = []
+        for region_idx in range(0, len(data)):
+            data[region_idx] = (np.percentile(data[region_idx], 75) - np.percentile(data[region_idx], 25))/np.median(data[region_idx])
+            # all_data.extend(data[region_idx])
+
+        # Create a boxplot for this site
+        # bplot = axes[1, site_idx].boxplot(data, labels=region_names,
+        #                                   flierprops=flierprops,
+        #                                   patch_artist=True)
+
+        for region_idx in range(0, len(data)):
+            axes[1, site_idx].bar(region_idx,
+                                   data[region_idx],
+                                   color=region_colors[region_idx],
+                                   edgecolor='black')
+
+        # axes[0, site_idx].set_title(f"Site: {site_name}")
+        axes[1, site_idx].set_xticks(range(len(region_names)))
+        axes[1, site_idx].set_xticklabels(region_names, rotation=45, ha='right')
+        axes[1, site_idx].set_ylim([0, 0.4])  # Adjust the y-axis limit as needed
+        # axes[0, site_idx].set_ylim([0.5, 1.5])  # Adjust the y-axis limit as needed
+        axes[1, site_idx].set_xlabel("Region")
+        # if site_idx == 0:
+        axes[1, site_idx].set_ylabel("Robust CoV of R2")
+
         # Add labels and grid
-        axes[1, site_idx].set_yticks(range(len(region_names)))
-        axes[1, site_idx].set_yticklabels(region_names)
-        axes[1, site_idx].set_ylim([len(region_names)+0.5, 0.5])
-        axes[1, site_idx].set_xlim(
-            [-4, 4])  # Adjust based on expected difference range
-        axes[1, site_idx].axvline(0, color='black',
-                                  linewidth=0.5)  # Vertical line at zero
-        axes[1, site_idx].set_title(f"Site: {site_name}")
-        axes[1, site_idx].set_xlabel("Interhemispheric (left-right)\n R2 difference [1/s]")
-        if site_idx == 0:
-            axes[1, site_idx].set_ylabel("Region")
+        # axes[1, site_idx].set_yticks(range(len(region_names)))
+        # axes[1, site_idx].set_yticklabels(region_names)
+        # axes[1, site_idx].set_ylim([len(region_names)+0.5, 0.5])
+        # axes[1, site_idx].set_xlim(
+        #     [-4, 4])  # Adjust based on expected difference range
+        # axes[1, site_idx].axvline(0, color='black',
+        #                           linewidth=0.5)  # Vertical line at zero
+        # axes[1, site_idx].set_title(f"Site: {site_name}")
+        # axes[1, site_idx].set_xlabel("Interhemispheric (left-right)\n R2 difference [1/s]")
+        # if site_idx == 0:
+        #     axes[1, site_idx].set_ylabel("Region")
         # axes[1, site_idx].invert_yaxis()
 
-    fig.suptitle("Left-right differences with mean and std across subjects",
-                 fontsize=16)
+    # fig.suptitle("Left-right differences with mean and std across subjects",
+    #              fontsize=16)
 
     # Adjust the layout
     plt.tight_layout()

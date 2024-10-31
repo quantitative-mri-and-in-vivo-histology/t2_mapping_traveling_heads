@@ -4,6 +4,7 @@ import nibabel as nib
 import matplotlib.pyplot as plt
 import numpy as np
 from nipype.interfaces import fsl
+import scipy
 
 
 # Define the slice positions for the central axial, sagittal, and coronal slices
@@ -27,7 +28,7 @@ if __name__ == "__main__":
     if same_scaling:
         out_dir = f"{out_dir_base}/same_scaling"
     else:
-        out_dir = f"{out_dir_base}/scaled_per_scan"
+        out_dir = f"{out_dir_base}/scaled_per_scan_alt"
 
     os.makedirs(out_dir, exist_ok=True)
 
@@ -107,17 +108,31 @@ if __name__ == "__main__":
 
         # Loop through each volume (R2 map) and plot the three central slices
         for i, volume in enumerate(r2_maps):
+
+            if i < 2:
+                volume[volume>35] = 0
+
+            if same_scaling:
+                vmin, vmax = 0, 38
+            else:
+                vmin = np.percentile(volume[~np.isnan(volume)], 1)
+                vmax = np.percentile(volume[~np.isnan(volume)], 99)
+
+                non_nan_mask = ~np.isnan(volume)
+                # volume = (volume-np.mean(volume[non_nan_mask]))/np.std(volume[non_nan_mask])
+                volume = (volume - np.median(volume[non_nan_mask])) / scipy.stats.median_abs_deviation(
+                    volume[non_nan_mask])
+
+                vmin = -3
+                vmax = 3
+
             sagittal, coronal, axial = get_central_slices(volume)
 
 
-            if same_scaling:
-                vmin, vmax = 0, 50
-            else:
-                vmin = np.percentile(volume[~np.isnan(volume)], 5)
-                vmax = np.percentile(volume[~np.isnan(volume)], 95)
+            label_txt = 'R_2 robust z-score'
 
             # Define colormap and color range
-            cmap = 'viridis'  # You can change this to any colormap you prefer
+            cmap = 'coolwarm'  # You can change this to any colormap you prefer
 
             # Plot sagittal slice (first row)
             im1 = axes[0, i].imshow(np.rot90(sagittal), cmap=cmap, vmin=vmin,
@@ -126,7 +141,7 @@ if __name__ == "__main__":
             axes[0, i].axis('off')  # Turn off axis labels
             cbar = fig.colorbar(im1, ax=axes[0, i], fraction=0.046,
                          pad=0.04)  # Add colorbar
-            cbar.set_label('R_2 [1/s]')
+            cbar.set_label(label_txt)
 
             # Plot coronal slice (second row)
             im2 = axes[1, i].imshow(np.rot90(coronal), cmap=cmap, vmin=vmin,
@@ -134,7 +149,7 @@ if __name__ == "__main__":
             axes[1, i].axis('off')  # Turn off axis labels
             cbar = fig.colorbar(im2, ax=axes[1, i], fraction=0.046,
                          pad=0.04)  # Add colorbar
-            cbar.set_label('R_2 [1/s]')
+            cbar.set_label(label_txt)
 
             # Plot axial slice (third row)
             im3 = axes[2, i].imshow(np.rot90(axial), cmap=cmap, vmin=vmin,
@@ -142,7 +157,7 @@ if __name__ == "__main__":
             axes[2, i].axis('off')  # Turn off axis labels
             cbar = fig.colorbar(im3, ax=axes[2, i], fraction=0.046,
                          pad=0.04)  # Add colorbar
-            cbar.set_label('R_2 [1/s]')
+            cbar.set_label(label_txt)
 
         # Add row titles for the views
         axes[0, 0].set_ylabel('Sagittal', fontsize=12)

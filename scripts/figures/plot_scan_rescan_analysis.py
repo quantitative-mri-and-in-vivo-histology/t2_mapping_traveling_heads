@@ -257,8 +257,8 @@ if __name__ == "__main__":
 
                 heatmap = ax.hist2d(mean, diff, bins=[x_bins, y_bins],
                                     cmap="viridis")
-                cbar = plt.colorbar(heatmap[3], ax=ax)
-                cbar.set_label('Count')
+                # cbar = plt.colorbar(heatmap[3], ax=ax)
+                # cbar.set_label('Count')
 
                 # ax.scatter(mean, diff, s=10, alpha=0.5)
                 ax.axhline(mean_diff, color='gray', linestyle='--')
@@ -274,7 +274,7 @@ if __name__ == "__main__":
                 # ax.set_ylim([-0.25, 0.25])
 
                 if region_index == 0:  # Add site name to the first column (leftmost)
-                    ax.set_ylabel(site_name, fontsize=16,
+                    ax.set_ylabel(site_name, fontsize=12,
                                   labelpad=10, rotation=90, verticalalignment='center')
                 else:
                     ax.set_xlabel('Mean of Scan and Rescan R2 in percent\nnormalized to ROi median')
