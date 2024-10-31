@@ -9,7 +9,7 @@ import nipype.pipeline.engine as pe
 from bids.layout import BIDSLayout
 from nipype import Function
 from nipype import Node, Workflow
-from nipype.interfaces.ants import Atropos
+from nipype.interfaces.ants import Atropos, N4BiasFieldCorrection
 from nipype.interfaces.base import (BaseInterface, BaseInterfaceInputSpec,
                                     TraitedSpec, File, traits)
 from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
@@ -23,9 +23,11 @@ from nodes.io import BidsOutputWriter
 from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
     DEFAULT_NIFTI_WRITE_EXT_ENTITY, \
     PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE, \
-    PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
+    PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK, \
+    PROCESSED_ENTITY_OVERRIDES_T1_MAP, \
+    PROCESSED_ENTITY_OVERRIDES_T2W
 from utils.io import write_minimal_bids_dataset_description, find_file
-
+from nipype.interfaces.utility import Merge
 
 
 class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
@@ -208,6 +210,28 @@ def main():
                         run=run
                     )
 
+                    input_dict["t1_map_file"] = find_file(
+                        layout,
+                        subject=subject,
+                        session=session,
+                        run=run,
+                        space=None,
+                        **PROCESSED_ENTITY_OVERRIDES_T1_MAP,
+                        **DEFAULT_NIFTI_READ_EXT_ENTITY,
+                    )
+
+                    # input_dict["t2w_file"] = find_file(
+                    #     layout,
+                    #     subject=subject,
+                    #     session=session,
+                    #     run=run,
+                    #     space=None,
+                    #     suffix="T2w",
+                    #     acquisition="A1(2|3)RF180",
+                    #     **DEFAULT_NIFTI_READ_EXT_ENTITY,
+                    #     regex_search=True,
+                    # )
+
                     input_dict["t1w_reg_target_file"] = find_file(
                         layout,
                         subject=subject,
@@ -346,6 +370,20 @@ def main():
     wf.connect(input_node, "brain_mask_file",
                brain_mask_writer, "template_file")
 
+    # # remove low frequency bias
+    # n4_bias_field_correction = pe.Node(N4BiasFieldCorrection(
+    #     dimension=3
+    # ),
+    #     name="n4_bias_field_correction")
+    # wf.connect(input_node, "t2w_file",
+    #            n4_bias_field_correction, "input_image")
+    #
+    # merge_atropos_inputs = pe.Node(Merge(2), name="merge_atropos_inputs")
+    # wf.connect(input_node, "t1_map_file",
+    #            merge_atropos_inputs, "in1")
+    # wf.connect(n4_bias_field_correction, "output_image",
+    #            merge_atropos_inputs, "in2")
+
     # segment brain into wm, gm and csf
     atropos = Node(Atropos(), name='atropos')
     atropos.inputs.dimension = 3
@@ -362,7 +400,7 @@ def main():
     atropos.inputs.n_iterations = 5
     atropos.inputs.save_posteriors = True
     wf.connect(copy_prior_node, "output_format_str", atropos, "prior_image")
-    wf.connect(input_node, "t1w_reg_target_file", atropos, "intensity_images")
+    wf.connect(input_node, "t1_map_file", atropos, "intensity_images")
     wf.connect(brain_mask_threshold, "out_file", atropos, "mask_image")
 
     # write tissue segmentation probability maps

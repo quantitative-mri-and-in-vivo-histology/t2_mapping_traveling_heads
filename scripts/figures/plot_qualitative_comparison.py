@@ -23,7 +23,7 @@ def get_central_slices(volume):
 if __name__ == "__main__":
 
     out_dir_base = "../../data/figures/qualitative"
-    same_scaling = True
+    same_scaling = False
     if same_scaling:
         out_dir = f"{out_dir_base}/same_scaling"
     else:
@@ -34,15 +34,17 @@ if __name__ == "__main__":
     brain_mask_file = fsl.Info.standard_image('MNI152_T1_1mm_brain_mask.nii.gz')
     brain_mask = nib.load(brain_mask_file).get_fdata()
 
-    brain_probseg_file = "/home/laurin/workspace/t2_mapping_traveling_heads/data/atlases/brain_probseg_1mm.nii.gz"
+    brain_probseg_file = "/home/laurin/workspace/t2_mapping_traveling_heads/data/atlases/space-MNI152_label-brain_desc-SPM_probseg.nii.gz"
     brain_probseg = nib.load(brain_probseg_file).get_fdata()
     brain_mask = brain_probseg > 0.95
 
+    brain_mask = nib.load("/usr/local/fsl/data/standard/MNI152_T1_1mm_brain_mask.nii.gz").get_fdata()
+
     dataset_dirs = [
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_dzne",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/London_Kings_Vida_3T",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_ssfp"
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Bonn_Skyra_3T_LowRes_bids",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Hamburg_Prisma_3T_bids_3depi",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/London_Kings_Vida_3T_bids",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Hamburg_Prisma_3T_bids_ssfp"
     ]
     dataset_names = [
         "3D-EPI (Reference)",
@@ -54,7 +56,7 @@ if __name__ == "__main__":
     mni_registered_data_dirs = []
     mni_result_layouts = []
     for dataset_dir in dataset_dirs:
-        mni_registered_data_dir = os.path.join(dataset_dir, "registeredMni")
+        mni_registered_data_dir = os.path.join(dataset_dir, "registered")
         mni_registered_data_dirs.append(mni_registered_data_dir)
         mni_result_layouts.append(BIDSLayout(mni_registered_data_dir, validate=False))
 
@@ -78,7 +80,8 @@ if __name__ == "__main__":
         for layout in mni_result_layouts:
 
             t2_map_files = layout.get(**subject_run_combination,
-                                      suffix="T2Map",
+                                      space="MNI152",
+                                      suffix="T2map",
                                       extension="nii.gz")
             print(subject_run_combination)
             print(t2_map_files)
@@ -86,7 +89,8 @@ if __name__ == "__main__":
             t2_map_file = t2_map_files[0]
 
             r2_map_files = layout.get(**subject_run_combination,
-                                      suffix="R2Map",
+                                      space="MNI152",
+                                      suffix="R2map",
                                       extension="nii.gz")
             assert (len(r2_map_files) == 1)
             r2_map_file = r2_map_files[0]

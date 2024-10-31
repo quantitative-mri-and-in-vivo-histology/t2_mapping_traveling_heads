@@ -27,11 +27,14 @@ from utils.bids_config import DEFAULT_NIFTI_READ_EXT_ENTITY, \
     PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE, \
     PROCESSED_ENTITY_OVERRIDES_BRAIN_MASK
 from nipype.interfaces.base import (
-    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, InputMultiPath, traits, isdefined
+    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, InputMultiPath,
+    traits, isdefined
 )
 from nipype.utils.filemanip import fname_presuffix
 import ants
 import os
+from nodes.registration import \
+    create_default_ants_rigid_affine_syn_registration_node
 
 
 class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
@@ -48,7 +51,7 @@ class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
 
 class AntspynetBrainExtractionOutputSpec(TraitedSpec):
     output_image = File(exists=True,
-                         desc="Path to the brain probability segmentation")
+                        desc="Path to the brain probability segmentation")
 
 
 class AntspynetBrainExtraction(BaseInterface):
@@ -183,19 +186,20 @@ def main():
                                        '[_run-{run}][_space-{space}][_label-{label}]' \
                                        '[_desc-{desc}][_part-{part}]_{suffix}.{extension}'
 
+    # collect data for each independent subject-session-run combination
     inputs = []
-    subjects = layout.get_subjects()
-    subjects = ["phy001"]
+    subjects = [args.subject] if args.subject else layout.get_subjects()
     for subject in subjects:
-        sessions = layout.get_sessions(subject=subject)
-        if sessions:  # Only add subjects with existing sessions
+        sessions = [args.session] if args.session else layout.get_sessions(
+            subject=subject)
+        if sessions:
             for session in sessions:
                 runs = layout.get_runs(subject=subject, session=session)
 
                 if len(runs) != 2:
                     continue
 
-                for run in runs:
+                # for run in runs:
                     # t1_map_files = layout.get(subject=subject,
                     #                        session=session,
                     #                        suffix="T1map",
@@ -220,34 +224,34 @@ def main():
                     #                           extension="nii.gz")
                     # assert (len(r2_map_files) == 2)
 
-                    t1w_reg_target_files = layout.get(subject=subject,
-                                              session=session,
-                                              **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
-                                              **DEFAULT_NIFTI_READ_EXT_ENTITY)
+                t1w_reg_target_files = layout.get(subject=subject,
+                                                  session=session,
+                                                  space=None,
+                                                  **PROCESSED_ENTITY_OVERRIDES_REG_REF_IMAGE,
+                                                  **DEFAULT_NIFTI_READ_EXT_ENTITY)
 
-                    assert (len(t1w_reg_target_files) == 2)
+                assert (len(t1w_reg_target_files) == 2)
 
-                    # relaxation_maps = [r1_map_files, r2_map_files, t1_map_files, t2_map_files]
-                    # # relaxation_map_suffixes = ["R1map", "R2map", "T1map", "T2map"]
-                    # relaxation_map_entities = [
-                    #     dict(suffix="R1Map", desc=None),
-                    #     dict(suffix="R2Map", desc=None),
-                    #     dict(suffix="T1Map", desc=None),
-                    #     dict(suffix="T2Map", desc=None)
-                    # ]
+                # relaxation_maps = [r1_map_files, r2_map_files, t1_map_files, t2_map_files]
+                # # relaxation_map_suffixes = ["R1map", "R2map", "T1map", "T2map"]
+                # relaxation_map_entities = [
+                #     dict(suffix="R1Map", desc=None),
+                #     dict(suffix="R2Map", desc=None),
+                #     dict(suffix="T1Map", desc=None),
+                #     dict(suffix="T2Map", desc=None)
+                # ]
 
-                    inputs.append(dict(subject=subject,
-                                       session=session,
-                                       run=run,
-                                       t1w_scan_file=t1w_reg_target_files[0],
-                                       t1w_rescan_file=t1w_reg_target_files[1],
-                                       t1w_reg_target_files=t1w_reg_target_files))
-                                       # t1_map_files=t1_map_files,
-                                       # t2_map_files=t2_map_files,
-                                       # r1_map_files=r1_map_files,
-                                       # r2_map_files=r2_map_files))
-                                       # relaxation_maps=relaxation_maps,
-                                       # relaxation_map_entities=relaxation_map_entities))
+                inputs.append(dict(subject=subject,
+                                   session=session,
+                                   t1w_scan_file=t1w_reg_target_files[0],
+                                   t1w_rescan_file=t1w_reg_target_files[1],
+                                   t1w_reg_target_files=t1w_reg_target_files))
+                    # t1_map_files=t1_map_files,
+                    # t2_map_files=t2_map_files,
+                    # r1_map_files=r1_map_files,
+                    # r2_map_files=r2_map_files))
+                    # relaxation_maps=relaxation_maps,
+                    # relaxation_map_entities=relaxation_map_entities))
 
     print(inputs)
 
@@ -265,19 +269,19 @@ def main():
 
     # create brain mask
     brain_extraction_node = pe.MapNode(AntspynetBrainExtraction(),
-                                    name="brain_extraction",
+                                       name="brain_extraction",
                                        iterfield=["anatomical_image"])
     wf.connect(input_node, "t1w_reg_target_files",
                brain_extraction_node, "anatomical_image")
     brain_mask_threshold = pe.MapNode(Threshold(thresh=0.01, args="-bin"),
-                                   name="brain_mask_threshold",
+                                      name="brain_mask_threshold",
                                       iterfield=["in_file"])
     wf.connect(brain_extraction_node, "output_image",
                brain_mask_threshold, "in_file")
 
     # write brain_mask
     brain_mask_writer = pe.MapNode(BidsOutputWriter(),
-                              name="brain_mask_writer",
+                                   name="brain_mask_writer",
                                    iterfield=["in_file", "template_file"])
     brain_mask_writer.inputs.output_dir = args.output_dir
     brain_mask_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
@@ -311,13 +315,14 @@ def main():
     # write brain_mask
     template_writer = pe.Node(BidsOutputWriter(),
                               name="template_writer",
-                                   iterfield=["in_file", "template_file"])
+                              iterfield=["in_file", "template_file"])
     template_writer.inputs.output_dir = args.output_dir
     template_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
     template_writer.inputs.entity_overrides = dict(
+        run=None,
         acquisition=None,
         desc="template",
-        space="midScanRescan",
+        space="midspaceRuns",
         suffix="T1w",
         **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
     wf.connect(build_template, "output_template",
@@ -325,6 +330,111 @@ def main():
     wf.connect(input_node, "t1w_scan_file",
                template_writer, "template_file")
 
+    # mni_template = Info.standard_image(
+    #     'MNI152_T1_1mm.nii.gz')  # Get MNI template path from FSL
+    # mni_template_mask = Info.standard_image(
+    #     'MNI152_T1_1mm_brain_mask_dil.nii.gz')  # Get MNI template path from FSL
+
+    # compute registration
+    register_t1w = pe.MapNode(
+        create_default_ants_rigid_affine_syn_registration_node(),
+        name="register_t1w", iterfield=["moving_image"])
+    # register_t1w.inputs.fixed_image = mni_template
+    # register_t1w.inputs.fixed_image_masks = ["NULL", "NULL",
+    #                                          mni_template_mask]
+    # register_t1w.inputs.use_histogram_matching = True
+    wf.connect(apply_mask, "out_file",
+               register_t1w, "moving_image")
+
+    wf.connect(build_template, "output_template",
+               register_t1w, "fixed_image")
+
+    # get affine transform from list of transforms
+    select_forward_affine_node = pe.MapNode(Select(index=1),
+                                            name="select_forward_affine_node",
+                                            iterfield=["inlist"])
+    wf.connect(register_t1w, "reverse_forward_transforms",
+               select_forward_affine_node, "inlist")
+
+    # write affine transform
+    forward_affine_transform_writer = pe.MapNode(BidsOutputWriter(),
+                                                 name="forward_affine_transform_writer",
+                                                 iterfield=["in_file",
+                                                            "template_file"])
+    forward_affine_transform_writer.inputs.output_dir = args.output_dir
+    forward_affine_transform_writer.inputs.entity_overrides = dict(
+        part=None,
+        acquisition=None,
+        desc="subjectToMidspaceRuns",
+        suffix="transform",
+        extension="mat")
+    wf.connect(select_forward_affine_node, "out",
+               forward_affine_transform_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               forward_affine_transform_writer, "template_file")
+
+    # extract forward warp from list of transforms
+    select_forward_warp_node = pe.MapNode(Select(index=0),
+                                          name="select_warp_node",
+                                          iterfield=["inlist"])
+    wf.connect(register_t1w, "reverse_forward_transforms",
+               select_forward_warp_node, "inlist")
+
+    # write forward warp
+    forward_warp_transform_writer = pe.MapNode(BidsOutputWriter(),
+                                               name="forward_warp_transform_writer",
+                                               iterfield=["in_file",
+                                                          "template_file"])
+    forward_warp_transform_writer.inputs.output_dir = args.output_dir
+    forward_warp_transform_writer.inputs.entity_overrides = dict(part=None,
+                                                                 acquisition=None,
+                                                                 desc="subjectToMidspaceRuns",
+                                                                 suffix="warp",
+                                                                 **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(select_forward_warp_node, "out",
+               forward_warp_transform_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               forward_warp_transform_writer, "template_file")
+
+    # select reverse warp from list of transforms
+    select_reverse_warp_node = pe.MapNode(Select(index=1),
+                                       name="select_reverse_warp_node",
+                                          iterfield=["inlist"])
+    wf.connect(register_t1w, "reverse_transforms",
+               select_reverse_warp_node, "inlist")
+
+    # write reverse warp
+    reverse_warp_transform_writer = pe.MapNode(BidsOutputWriter(),
+                                            name="reverse_warp_transform_writer",
+                                            iterfield=["in_file",
+                                                       "template_file"])
+    reverse_warp_transform_writer.inputs.output_dir = args.output_dir
+    reverse_warp_transform_writer.inputs.entity_overrides = dict(part=None,
+                                                                 acquisition=None,
+                                                                 desc="midspaceRunsToSubject",
+                                                                 suffix="warp",
+                                                                 **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(select_reverse_warp_node, "out",
+               reverse_warp_transform_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               reverse_warp_transform_writer, "template_file")
+
+
+    # write brain_mask
+    t1w_reg_target_writer = pe.MapNode(BidsOutputWriter(),
+                              name="t1w_reg_target_writer",
+                              iterfield=["in_file", "template_file"])
+    t1w_reg_target_writer.inputs.output_dir = args.output_dir
+    t1w_reg_target_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
+    t1w_reg_target_writer.inputs.entity_overrides = dict(
+        acquisition=None,
+        space="midspaceRuns",
+        suffix="T1w",
+        **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
+    wf.connect(register_t1w, "warped_image",
+               t1w_reg_target_writer, "in_file")
+    wf.connect(input_node, "t1w_reg_target_files",
+               t1w_reg_target_writer, "template_file")
 
     wf.run(**run_settings)
 

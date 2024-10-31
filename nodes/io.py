@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 
-from bids.layout import BIDSLayout
+from bids.layout import BIDSLayout, BIDSFile
 from nipype.interfaces.base import (
     BaseInterfaceInputSpec, TraitedSpec, File, traits, Directory
 )
@@ -48,7 +48,11 @@ class BidsOutputWriter(DataSink):
 
     def _run_interface(self, runtime):
         # Load BIDS layout and parse file entities
-        layout = BIDSLayout(self.inputs.template_file, validate=False)
+        # layout = BIDSLayout(self.inputs.template_file, validate=False)
+
+        layout = BIDSLayout(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.dirname(self.inputs.template_file)))),
+                   validate=False)
         file_entities = layout.parse_file_entities(self.inputs.template_file)
 
         # Apply entity_overrides if provided

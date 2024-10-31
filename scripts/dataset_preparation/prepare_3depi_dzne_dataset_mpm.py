@@ -1,5 +1,4 @@
 import argparse
-import math
 import multiprocessing
 import os
 
@@ -12,13 +11,10 @@ from nipype.interfaces.utility import IdentityInterface, Function
 
 from nodes.io import BidsOutputWriter
 from utils.bids_config import (DEFAULT_NIFTI_READ_EXT_ENTITY,
-                               STANDARDIZED_ENTITY_OVERRIDES_T1W,
                                STANDARDIZED_ENTITY_OVERRIDES_B0_PHASEDIFF_MAP,
                                STANDARDIZED_ENTITY_OVERRIDES_B0_ANAT_REF,
                                STANDARDIZED_ENTITY_OVERRIDES_B1_MAP,
-                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF,
-                               STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG,
-                               STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE)
+                               STANDARDIZED_ENTITY_OVERRIDES_B1_ANAT_REF)
 from utils.io import write_minimal_bids_dataset_description, find_image_and_json
 from workflows.processing import correct_b1_with_b0
 
@@ -27,6 +23,7 @@ def create_brain_mask_from_anatomical_b1(in_file, threshold=200, fwhm=8):
     """
     Shift a specified number of voxels along a given dimension and merge them to the other side.
 
+    Parameters:
     Parameters:
     in_file (str): Path to the input NIfTI file.
     n_voxels (int): Number of voxels to shift.
@@ -337,36 +334,6 @@ def main():
                     input_dict["session"] = session
                     input_dict["run"] = run
 
-                    (input_dict["t1w_file"],
-                     input_dict["t1w_json_dict"]) = find_image_and_json(
-                        layout,
-                        subject=subject,
-                        session=session,
-                        run=run,
-                        acquisition="dznebnt1wmprage1isoComb",
-                        suffix="T1w",
-                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
-
-                    (input_dict["t2w_mag_file"],
-                     input_dict["t2w_mag_json_dict"]) = find_image_and_json(
-                        layout,
-                        subject=subject,
-                        session=session,
-                        run=run,
-                        suffix="T2w",
-                        part="mag",
-                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
-
-                    (input_dict["t2w_phase_file"],
-                     input_dict["t2w_phase_json_dict"]) = find_image_and_json(
-                        layout,
-                        subject=subject,
-                        session=session,
-                        run=run,
-                        suffix="T2w",
-                        part="phase",
-                        **DEFAULT_NIFTI_READ_EXT_ENTITY)
-
                     (input_dict["b1_map_file"],
                      input_dict["b1_map_json_dict"]) = find_image_and_json(
                         layout,
@@ -446,24 +413,10 @@ def main():
                     # add flip angles
                     input_dict["fa_b1_in_degrees"] = \
                         fa_b1_in_degrees
-                    input_dict["fa_nominal_in_degrees"] = input_dict[
-                        "t2w_mag_json_dict"]["FlipAngle"]
+                    input_dict["fa_nominal_in_degrees"] = 10 # for MPM
 
                     # add RF pulse duration and phase increments to T2w metadata
                     input_dict["rf_pulse_duration"] = 2.46e-3
-                    input_dict[
-                        "t2w_mag_json_dict"]["RfPulseDuration"] = input_dict[
-                        "rf_pulse_duration"]
-                    input_dict[
-                        "t2w_phase_json_dict"]["RfPulseDuration"] = input_dict[
-                        "rf_pulse_duration"]
-                    rf_phase_increments = [1, 2, 4, 1.5, 3, 5]
-                    input_dict[
-                        "t2w_mag_json_dict"][
-                        "RfPhaseIncrement"] = rf_phase_increments
-                    input_dict[
-                        "t2w_phase_json_dict"]["RfPhaseIncrement"] = \
-                        rf_phase_increments
 
                     inputs.append(input_dict)
 
@@ -473,7 +426,7 @@ def main():
         # subject-run-session combination
         wf_id = "{}_{}_{}".format(input_dict["subject"], input_dict["session"],
                                   input_dict["run"])
-        wf = Workflow(name="prepare_3depi_dzne_dataset_{}".format(wf_id))
+        wf = Workflow(name="prepare_3depi_dzne_dataset_mpm_{}".format(wf_id))
         wf.base_dir = args.temp_dir
 
         # create input node using entries in input_dict for
@@ -483,15 +436,6 @@ def main():
             name='input_node')
         for key, value in input_dict.items():
             setattr(input_node.inputs, key, value)
-
-        # scale phase to radian
-        scaling_factor = math.pi / 4096.0
-        scale_phase_from_siemens_to_radian = pe.Node(
-            fsl.ImageMaths(
-                op_string='-mul {}'.format(scaling_factor)),
-            name="scale_phase_from_siemens_to_rad")
-        wf.connect(input_node, "t2w_phase_file",
-                   scale_phase_from_siemens_to_radian, "in_file")
 
         # convert B0 map to radian
         unwrap_phase_b0 = pe.Node(fsl.BinaryMaths(operation="mul"),
@@ -626,42 +570,6 @@ def main():
                    b1_anat_ref_file_writer, "json_dict")
         wf.connect(input_node, "b1_ste_file",
                    b1_anat_ref_file_writer, "template_file")
-
-        # write T2w magngitude image
-        t2w_mag_file_writer = pe.Node(BidsOutputWriter(),
-                                      name="t2w_mag_file_writer")
-        t2w_mag_file_writer.inputs.output_dir = args.output_dir
-        t2w_mag_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T2W_MAG
-        wf.connect(input_node, "t2w_mag_file",
-                   t2w_mag_file_writer, "in_file")
-        wf.connect(input_node, "t2w_mag_file",
-                   t2w_mag_file_writer, "template_file")
-        wf.connect(input_node, "t2w_mag_json_dict",
-                   t2w_mag_file_writer, "json_dict")
-
-        # write T2w phase image
-        t2w_phase_file_writer = pe.Node(BidsOutputWriter(),
-                                        name="t2w_phase_file_writer")
-        t2w_phase_file_writer.inputs.output_dir = args.output_dir
-        t2w_phase_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T2W_PHASE
-        wf.connect(scale_phase_from_siemens_to_radian, "out_file",
-                   t2w_phase_file_writer, "in_file")
-        wf.connect(input_node, "t2w_phase_file",
-                   t2w_phase_file_writer, "template_file")
-        wf.connect(input_node, "t2w_phase_json_dict",
-                   t2w_phase_file_writer, "json_dict")
-
-        # write T1w image
-        t1w_file_writer = pe.Node(BidsOutputWriter(),
-                                  name="t1w_file_writer")
-        t1w_file_writer.inputs.output_dir = args.output_dir
-        t1w_file_writer.inputs.entity_overrides = STANDARDIZED_ENTITY_OVERRIDES_T1W
-        wf.connect(input_node, "t1w_file",
-                   t1w_file_writer, "in_file")
-        wf.connect(input_node, "t1w_file",
-                   t1w_file_writer, "template_file")
-        wf.connect(input_node, "t1w_json_dict",
-                   t1w_file_writer, "json_dict")
 
         wf.run(**run_settings)
 

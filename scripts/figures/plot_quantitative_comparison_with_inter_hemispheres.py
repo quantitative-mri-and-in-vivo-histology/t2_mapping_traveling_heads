@@ -40,26 +40,11 @@ if __name__ == "__main__":
         dict(label=[5, 16], name="Putamen")
     ]
 
-    # brain_mask_file = "../data/templates/MNI152_T1_1mm_brain_mask.nii.gz"
-    # brain_mask = nib.load(brain_mask_file).get_fdata()
-
-    # dataset_dirs = [
-    #     "/media/laurin/Data_share/Travel_Head_Study/Bonn_Skyra_3T_LowRes_bids_results_bad_b1",
-    #     "/media/laurin/Data_share/Travel_Head_Study/London_Kings_Vida_3T_bids_results",
-    #     "/media/laurin/Data_share/Travel_Head_Study/Hamburg_Prisma_3T_bids_results/fibu"
-    # ]
-
-    # dataset_dirs = [
-    #     "/media/laurin/Storage/Travel_Heads_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",
-    #     "/media/laurin/Storage/Travel_Heads_Study/clean/results/London_Kings_Vida_3T",
-    #     "/media/laurin/Storage/Travel_Heads_Study/clean/results/Hamburg_Prisma_3T_ssfp"
-    # ]
-
     dataset_dirs = [
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Bonn_Skyra_3T_LowRes_bad_b1",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_dzne",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/London_Kings_Vida_3T",
-        "/media/laurin/Elements/Travel_Head_Study/clean/results/Hamburg_Prisma_3T_ssfp"
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Bonn_Skyra_3T_LowRes_bids",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Hamburg_Prisma_3T_bids_3depi",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/London_Kings_Vida_3T_bids",
+        "/media/laurin/Data_share/Travel_Head_Study/ismrm_dataset_2025/results/Hamburg_Prisma_3T_bids_ssfp"
     ]
     dataset_names = [
         "3D-EPI (Reference)",
@@ -79,17 +64,15 @@ if __name__ == "__main__":
         mni_result_layouts = []
         for dataset_dir in dataset_dirs:
             subject_registered_data_dir = os.path.join(dataset_dir,
-                                                       "registeredSubject")
+                                                       "registered")
             subject_registered_data_dirs.append(subject_registered_data_dir)
-            segmented_data_dir = os.path.join(dataset_dir, "segmented")
-            segmented_data_dirs.append(segmented_data_dir)
             processed_data_dir = os.path.join(dataset_dir, "processed")
             processed_data_dirs.append(processed_data_dir)
 
             print(f"Loading BIDS layout for dataset: {dataset_dir}")
             mni_result_layouts.append(
                 BIDSLayout(processed_data_dir, derivatives=[
-                    subject_registered_data_dir, segmented_data_dir],
+                    subject_registered_data_dir],
                            validate=False))
 
         sub_ses_run_dicts = []
@@ -135,16 +118,18 @@ if __name__ == "__main__":
 
                 # Load probability segmentation and T2 map files
                 cortical_probseg_files = layout.get(**subject_run_combination,
-                                                    desc="cortical",
+                                                    label="cortical",
                                                     suffix="probseg",
+                                                    space="subject",
                                                     extension="nii.gz")
                 assert (len(cortical_probseg_files) == 1)
                 cortical_probseg_file = cortical_probseg_files[0]
 
                 cortical_left_probseg_files = layout.get(
                     **subject_run_combination,
-                    desc="corticalLeft",
+                    label="corticalLeft",
                     suffix="probseg",
+                    space="subject",
                     extension="nii.gz")
                 print(subject_run_combination)
                 print(cortical_left_probseg_files)
@@ -153,30 +138,34 @@ if __name__ == "__main__":
 
                 cortical_right_probseg_files = layout.get(
                     **subject_run_combination,
-                    desc="corticalRight",
+                    label="corticalRight",
                     suffix="probseg",
+                    space="subject",
                     extension="nii.gz")
                 assert (len(cortical_right_probseg_files) == 1)
                 cortical_right_probseg_file = cortical_right_probseg_files[0]
 
                 subcortical_probseg_files = layout.get(
                     **subject_run_combination,
-                    desc="subcortical",
+                    label="subcortical",
                     suffix="probseg",
+                    space="subject",
                     extension="nii.gz")
                 assert (len(subcortical_probseg_files) == 1)
                 subcortical_probseg_file = subcortical_probseg_files[0]
 
                 gm_probseg_files = layout.get(**subject_run_combination,
-                                              desc="gmPosterior",
+                                              label="gm",
                                               suffix="probseg",
+                                              space="subject",
                                               extension="nii.gz")
                 assert (len(gm_probseg_files) == 1)
                 gm_probseg_file = gm_probseg_files[0]
 
                 t2_map_files = layout.get(**subject_run_combination,
                                           suffix="R2map",
-                                          extension="nii.gz")
+                                          extension="nii.gz",
+                                          space=None)
                 assert (len(t2_map_files) == 1)
                 t2_map_files = t2_map_files[0]
 
@@ -200,7 +189,7 @@ if __name__ == "__main__":
                 subcortical_probseg = subcortical_probseg_nib.get_fdata()
 
                 gm_mask_nib = nib.load(gm_probseg_file)
-                gm_mask = gm_mask_nib.get_fdata() > 0.8
+                gm_mask = gm_mask_nib.get_fdata() >= 0.9
                 atlas_roi_thres = 0.3
                 r2_thres = 150
 
@@ -219,7 +208,7 @@ if __name__ == "__main__":
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     region_dict[cortical_region["name"]] = t2_map_roi
@@ -231,7 +220,7 @@ if __name__ == "__main__":
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     region_dict_left[cortical_region["name"]] = t2_map_roi
@@ -244,7 +233,7 @@ if __name__ == "__main__":
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     region_dict_right[cortical_region["name"]] = t2_map_roi
@@ -261,7 +250,7 @@ if __name__ == "__main__":
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     t2_map_roi = t2_map_roi[~np.isnan(t2_map_roi)]
@@ -276,7 +265,7 @@ if __name__ == "__main__":
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     t2_map_roi = t2_map_roi[~np.isnan(t2_map_roi)]
@@ -292,11 +281,12 @@ if __name__ == "__main__":
                         roi_mask = roi_probseg / 100
                         roi_mask[roi_mask < atlas_roi_thres] = 0
                         roi_mask = np.logical_and(roi_mask, gm_mask)
-                        roi_mask = roi_mask.astype(np.bool)
+                        roi_mask = roi_mask.astype(bool)
                     roi_mask = roi_probseg / 100
                     roi_mask[roi_mask < atlas_roi_thres] = 0
                     roi_mask = np.logical_and(roi_mask, gm_mask)
-                    roi_mask = roi_mask.astype(np.bool)
+                    roi_mask = roi_mask.astype(bool)
+                    roi_mask = roi_mask.astype(bool)
                     t2_map_roi = t2_map[roi_mask]
                     t2_map_roi = t2_map_roi[t2_map_roi < r2_thres]
                     t2_map_roi = t2_map_roi[~np.isnan(t2_map_roi)]
@@ -513,6 +503,17 @@ if __name__ == "__main__":
             hemisphere_differences_per_region_std.append(
                 np.std(hemisphere_differences_roi))
 
+            # left_means = np.array(
+            #     pooled_region_data_subject_means_left[region_name][site_name])
+            # right_means = np.array(
+            #     pooled_region_data_subject_means_right[region_name][site_name])
+            # hemisphere_differences_roi = left_means - right_means
+            # hemisphere_differences_per_region.append(hemisphere_differences_roi)
+            # hemisphere_differences_per_region_mean.append(
+            #     np.median(hemisphere_differences_roi))
+            # hemisphere_differences_per_region_std.append(
+            #     (np.max(hemisphere_differences_roi)-np.min(hemisphere_differences_roi))/2.0)
+
         # left_means = np.array(
         #     [np.mean(pooled_region_data_left[region_name][site_name]) for
         #      region_name in region_names])
@@ -529,21 +530,28 @@ if __name__ == "__main__":
                                    hemisphere_differences_per_region_mean[i],
                                    color=region_colors[i],
                                    edgecolor='black')
+            axes[1, site_idx].errorbar(hemisphere_differences_per_region_mean[i], i, xerr=hemisphere_differences_per_region_std[i], fmt='none', ecolor='black',
+                        capsize=3)
 
         # Invert y-axis to match the order of regions with the boxplots
-        axes[1, site_idx].invert_yaxis()
+
 
         # Add labels and grid
         axes[1, site_idx].set_yticks(range(len(region_names)))
         axes[1, site_idx].set_yticklabels(region_names)
+        axes[1, site_idx].set_ylim([len(region_names)+0.5, 0.5])
         axes[1, site_idx].set_xlim(
-            [-2.5, 2.5])  # Adjust based on expected difference range
+            [-4, 4])  # Adjust based on expected difference range
         axes[1, site_idx].axvline(0, color='black',
                                   linewidth=0.5)  # Vertical line at zero
         axes[1, site_idx].set_title(f"Site: {site_name}")
         axes[1, site_idx].set_xlabel("Interhemispheric (left-right)\n R2 difference [1/s]")
         if site_idx == 0:
             axes[1, site_idx].set_ylabel("Region")
+        # axes[1, site_idx].invert_yaxis()
+
+    fig.suptitle("Left-right differences with mean and std across subjects",
+                 fontsize=16)
 
     # Adjust the layout
     plt.tight_layout()

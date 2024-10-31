@@ -153,7 +153,7 @@ if __name__ == "__main__":
                 subcortical_probseg = subcortical_probseg_nib.get_fdata()
 
                 gm_mask_nib = nib.load(gm_probseg_file)
-                gm_mask = gm_mask_nib.get_fdata() >= 0.9
+                gm_mask = gm_mask_nib.get_fdata() >= 0.70
                 atlas_roi_thres = 0.3
                 r2_thres = 75
 
@@ -221,72 +221,80 @@ if __name__ == "__main__":
                             region_dict[region_name])
 
             # Now proceed to create Bland-Altman plots
-        fig, axs = plt.subplots(len(dataset_names), len(region_names), figsize=(20, 20))
+        fig, axs = plt.subplots(1, len(dataset_names), figsize=(15, 5))
 
         for site_index, site_name in enumerate(dataset_names):
+            ax = axs[site_index]
+
+            r2_scan_roi = []
+            r2_rescan_roi = []
             for region_index, region_name in enumerate(region_names):
-                ax = axs[site_index, region_index]
-                r2_scan_roi, r2_rescan_roi = region_data[site_index, 0][
+
+                r2_scan_roi_data, r2_rescan_roi_data = region_data[site_index, 0][
                     region_name]  # Assuming subject index 0
 
-                r2_scan_roi = np.array(r2_scan_roi)
-                r2_rescan_roi = np.array(r2_rescan_roi)
+                r2_scan_roi.extend(r2_scan_roi_data)
+                r2_rescan_roi.extend(r2_rescan_roi_data)
 
-                valid_idx = np.logical_and(r2_scan_roi < r2_thres, r2_rescan_roi < r2_thres)
-                r2_scan_roi = r2_scan_roi[valid_idx]
-                r2_rescan_roi = r2_rescan_roi[valid_idx]
+            r2_scan_roi = np.array(r2_scan_roi)
+            r2_rescan_roi = np.array(r2_rescan_roi)
 
-                valid_idx = np.logical_and(np.isfinite(r2_scan_roi), np.isfinite(r2_rescan_roi))
-                r2_scan_roi = r2_scan_roi[valid_idx]
-                r2_rescan_roi = r2_rescan_roi[valid_idx]
+            valid_idx = np.logical_and(r2_scan_roi < r2_thres, r2_rescan_roi < r2_thres)
+            r2_scan_roi = r2_scan_roi[valid_idx]
+            r2_rescan_roi = r2_rescan_roi[valid_idx]
 
-                r2_median = np.median(np.ravel([r2_scan_roi, r2_rescan_roi]))
-                r2_scan_roi = r2_scan_roi/r2_median*100
-                r2_rescan_roi = r2_rescan_roi/r2_median*100
+            valid_idx = np.logical_and(np.isfinite(r2_scan_roi), np.isfinite(r2_rescan_roi))
+            r2_scan_roi = r2_scan_roi[valid_idx]
+            r2_rescan_roi = r2_rescan_roi[valid_idx]
 
-                mean = np.mean([r2_scan_roi, r2_rescan_roi], axis=0)
-                diff = r2_scan_roi - r2_rescan_roi  # Difference between data1 and data2
-                mean_diff = np.mean(diff)
-                std_diff = np.std(diff)
+            r2_median = np.median(np.ravel([r2_scan_roi, r2_rescan_roi]))
+            r2_scan_roi = r2_scan_roi/r2_median*100
+            r2_rescan_roi = r2_rescan_roi/r2_median*100
 
-                # Bland-Altman plotssc
-                x_bins = np.linspace(40, 160,
-                                     50)  # 50 bins from 0 to 200 for x-axis (mean)
-                y_bins = np.linspace(-60, 60,
-                                     50)  # 50 bins from -125 to 125 for y-axis (difference)
+            mean = np.mean([r2_scan_roi, r2_rescan_roi], axis=0)
+            diff = r2_scan_roi - r2_rescan_roi  # Difference between data1 and data2
+            mean_diff = np.mean(diff)
+            std_diff = np.std(diff)
 
-                heatmap = ax.hist2d(mean, diff, bins=[x_bins, y_bins],
-                                    cmap="viridis")
-                cbar = plt.colorbar(heatmap[3], ax=ax)
-                cbar.set_label('Count')
+            # Plotting
 
-                # ax.scatter(mean, diff, s=10, alpha=0.5)
-                ax.axhline(mean_diff, color='gray', linestyle='--')
-                ax.axhline(mean_diff + 1.96 * std_diff, color='red',
-                           linestyle='--')
-                ax.axhline(mean_diff - 1.96 * std_diff, color='red',
-                           linestyle='--')
+            x_bins = np.linspace(40, 160,
+                                 50)  # 50 bins from 0 to 200 for x-axis (mean)
+            y_bins = np.linspace(-60, 60,
+                                 50)  # 50 bins from -125 to 125 for y-axis (difference)
 
-                ax.set_xlim([40, 160])
-                ax.set_ylim([-60, 60])
+            heatmap = ax.hist2d(mean, diff, bins=[x_bins, y_bins], cmap="viridis")
+            cbar = plt.colorbar(heatmap[3], ax=ax)
+            cbar.set_label('Count')
 
-                # ax.set_xlim([0, 50])
-                # ax.set_ylim([-0.25, 0.25])
+            # # Bland-Altman plotssc
+            # ax.scatter(mean, diff, s=10, alpha=0.5)
+            ax.axhline(mean_diff, color='gray', linestyle='--')
+            ax.axhline(mean_diff + 1.96 * std_diff, color='red',
+                       linestyle='--')
+            ax.axhline(mean_diff - 1.96 * std_diff, color='red',
+                       linestyle='--')
 
-                if region_index == 0:  # Add site name to the first column (leftmost)
-                    ax.set_ylabel(site_name, fontsize=16,
-                                  labelpad=10, rotation=90, verticalalignment='center')
-                else:
-                    ax.set_xlabel('Mean of Scan and Rescan R2 in percent\nnormalized to ROi median')
-                    ax.set_ylabel('Difference (Scan - Rescan) in percent\nnormalized to ROI median')
+            ax.set_xlim([40, 160])
+            ax.set_ylim([-60, 60])
 
+            # ax.set_xlim([0, 50])
+            # ax.set_ylim([-0.25, 0.25])
 
-                if site_index == 0:  # Add site name to the first column (leftmost)
-                    ax.set_title(f"{region_name}", fontsize=16)
+            # if region_index == 0:  # Add site name to the first column (leftmost)
+            #     ax.set_ylabel(site_name, fontsize=16,
+            #                   labelpad=10, rotation=90, verticalalignment='center')
+            # else:
+            #     ax.set_xlabel('Mean of Scan and Rescan R2 in percent\nnormalized to ROi median')
+            #     ax.set_ylabel('Difference (Scan - Rescan) in percent\nnormalized to ROI median')
+            #
+            #
+            # if site_index == 0:  # Add site name to the first column (leftmost)
+            ax.set_title(f"{site_name}", fontsize=16)
 
-                    # ax.set_ylabel(site_name, fontsize=16,
-                    #               labelpad=10, rotate=90,
-                    #               verticalalignment='center')
+                # ax.set_ylabel(site_name, fontsize=16,
+                #               labelpad=10, rotate=90,
+                #               verticalalignment='center')
 
 
 
@@ -294,9 +302,9 @@ if __name__ == "__main__":
         plt.tight_layout()
 
         # Save the figure
-        plt.savefig(os.path.join(out_dir, "bland_altman_plots_normalized.png"))
+        plt.savefig(os.path.join(out_dir, "bland_altman_plots_normalized_pooled.png"))
         print(
-            f"Bland-Altman plots saved to {os.path.join(out_dir, 'bland_altman_plots.png')}")
+            f"Bland-Altman plots saved to {os.path.join(out_dir, 'bland_altman_plots_normalized_pooled.png')}")
 
         # Show the figure if desired
         plt.show()

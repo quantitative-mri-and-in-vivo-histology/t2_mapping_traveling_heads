@@ -249,8 +249,8 @@ def main():
         register_t1w.inputs.fixed_image_masks = ["NULL", "NULL",
                                                  mni_template_mask]
         # register_t1w.inputs.use_histogram_matching = True
-        wf.connect(n4_bias_field_correction, "output_image", register_t1w,
-                   "moving_image")
+        wf.connect(n4_bias_field_correction, "output_image",
+                   register_t1w, "moving_image")
 
         # get affine transform from list of transforms
         select_forward_affine_node = pe.Node(Select(index=1),

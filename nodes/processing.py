@@ -1,22 +1,62 @@
-from os import path
-from nipype.interfaces.fsl.base import FSLCommand, FSLCommandInputSpec
-import os
-from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
-                                    TraitedSpec, isdefined)
-from nipype.utils.filemanip import fname_presuffix
-from nipype.interfaces.ants.segmentation import BrainExtraction, \
-    BrainExtractionInputSpec
-from nipype.interfaces.base import File, traits
 import os
 from os import path
 
+import ants
+import antspynet
 from nipype.interfaces.ants.segmentation import BrainExtraction, \
     BrainExtractionInputSpec
-from nipype.interfaces.base import (CommandLine, CommandLineInputSpec,
-                                    TraitedSpec, isdefined)
-from nipype.interfaces.base import File, traits
+from nipype.interfaces.base import (
+    BaseInterface, BaseInterfaceInputSpec, TraitedSpec, File, traits, isdefined
+)
+from nipype.interfaces.base import (CommandLine, CommandLineInputSpec)
 from nipype.interfaces.fsl.base import FSLCommand, FSLCommandInputSpec
 from nipype.utils.filemanip import fname_presuffix
+
+
+class AntspynetBrainExtractionInputSpec(BaseInterfaceInputSpec):
+    anatomical_image = File(exists=True,
+                            desc="Input anatomical image (e.g., T1-weighted)",
+                            mandatory=True)
+    output_image = File(
+        desc="Path to save the brain probability segmentation output",
+        usedefault=True)
+    modality = traits.Enum("t1", "t2", "flair",
+                           desc="Modality of the anatomical image",
+                           default="t1", usedefault=True)
+
+
+class AntspynetBrainExtractionOutputSpec(TraitedSpec):
+    output_image = File(exists=True,
+                        desc="Path to the brain probability segmentation")
+
+
+class AntspynetBrainExtraction(BaseInterface):
+    input_spec = AntspynetBrainExtractionInputSpec
+    output_spec = AntspynetBrainExtractionOutputSpec
+
+    def _run_interface(self, runtime):
+        # Load the input image using ANTs
+        anatomical_image = ants.image_read(self.inputs.anatomical_image)
+
+        # Set the default output path if not specified
+        if not isdefined(self.inputs.output_image):
+            self.inputs.output_image = os.path.join(os.getcwd(),
+                                                    "brain_probseg.nii.gz")
+
+        # Perform brain extraction using ANTsPyNet based on the specified modality
+        brain_probseg = antspynet.brain_extraction(
+            anatomical_image, modality=self.inputs.modality
+        )
+
+        # Save the output image
+        brain_probseg.to_filename(self.inputs.output_image)
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        outputs['output_image'] = self.inputs.output_image
+        return outputs
 
 
 class CustomBrainExtractionInputSpec(BrainExtractionInputSpec):
