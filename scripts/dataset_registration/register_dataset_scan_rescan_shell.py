@@ -179,29 +179,33 @@ class PairwiseRegistrationOutputSpec(TraitedSpec):
     warped_to_template_b = File(desc="Warped image B to template")
 
 
+# -f 6x4x2x1 -q 50x30x20x10
 class PairwiseRegistration(CommandLine):
-    _cmd = "antsMultivariateTemplateConstruction2.sh -f 6x4x2x1 -q 30x20x10x5"  #
+    _cmd = "antsMultivariateTemplateConstruction2.sh -n 0"  #
     input_spec = PairwiseRegistrationInputSpec
     output_spec = PairwiseRegistrationOutputSpec
 
+    def __init__(self, **inputs):
+        super(PairwiseRegistration, self).__init__(**inputs)
+
     def _list_outputs(self):
-        outputs = self.output_spec().get()
+        outputs = self._outputs().get()
 
         output_prefix = self.inputs.output_prefix
         base_dir = os.getcwd()  # Use current working directory for outputs
 
         def construct_output_paths(moving_image, suffix):
             """Helper function to create output paths based on the input filename."""
-            filename = os.path.basename(moving_image).replace(".nii", "")
+            filename = os.path.basename(moving_image).replace(".nii.gz", "")
             return {
                 "affine": os.path.join(base_dir,
-                                       f"{output_prefix}input000{suffix}-{filename}-0GenericAffine.mat"),
+                                       f"{output_prefix}{filename}{suffix}0GenericAffine.mat"),
                 "inverse_warp": os.path.join(base_dir,
-                                             f"{output_prefix}input000{suffix}-{filename}-1InverseWarp.nii.gz"),
+                                             f"{output_prefix}{filename}{suffix}1InverseWarp.nii.gz"),
                 "forward_warp": os.path.join(base_dir,
-                                             f"{output_prefix}input000{suffix}-{filename}-1Warp.nii.gz"),
+                                             f"{output_prefix}{filename}{suffix}1Warp.nii.gz"),
                 "warped_image": os.path.join(base_dir,
-                                             f"{output_prefix}input000{suffix}-modality0-{filename}-WarpedToTemplate.nii.gz")
+                                             f"{output_prefix}template0{filename}{suffix}WarpedToTemplate.nii.gz")
             }
 
         # Set the outputs for each image based on the naming pattern
@@ -366,24 +370,25 @@ def main():
                select_r2_map_rescan, "inlist")
 
     pairwise_registration = pe.Node(PairwiseRegistration(
-        dimensions=3,
-        iterations=1
+        dimensions=3
     ),
         name="pairwise_registration")
     wf.connect(select_r2_map_scan, "out",
                pairwise_registration, "moving_image_a")
-    wf.connect(select_r2_map_scan, "out",
+    wf.connect(select_r2_map_rescan, "out",
                pairwise_registration, "moving_image_b")
 
     # write scan affine transform
     template_writer = pe.Node(BidsOutputWriter(),
                                                    name="template_writer")
     template_writer.inputs.output_dir = args.output_dir
+    template_writer.inputs.pattern = REGISTRATION_BIDS_OUTPUT_PATTERN
     template_writer.inputs.entity_overrides = dict(
         part=None,
         acquisition=None,
         run=None,
-        desc="subjectToMidspaceRuns",
+        space="midspaceRuns",
+        desc="template",
         suffix="R2map",
         **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
     wf.connect(pairwise_registration, "template_image",
@@ -463,7 +468,7 @@ def main():
         part=None,
         acquisition=None,
         run=1,
-        desc="subjectToMidspaceRuns",
+        desc="midspaceRunsToSubject",
         suffix="warp",
         **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
     wf.connect(pairwise_registration, "inverse_warp_a",
@@ -479,7 +484,7 @@ def main():
         part=None,
         acquisition=None,
         run=2,
-        desc="subjectToMidspaceRuns",
+        desc="midspaceRunsToSubject",
         suffix="warp",
         **DEFAULT_NIFTI_WRITE_EXT_ENTITY)
     wf.connect(pairwise_registration, "inverse_warp_b",
