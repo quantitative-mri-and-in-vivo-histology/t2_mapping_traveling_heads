@@ -52,15 +52,6 @@ def main():
         help="Directory to store the outputs."
     )
     parser.add_argument(
-        '--t1w',
-        type=str,
-        required=False,
-        default=None,
-        help="T1w image for brain mask extraction. T1w image will first be "
-             "registered to T2w magnitude image. If not specified, no mask "
-             "will be used for fitting."
-    )
-    parser.add_argument(
         '--echo_time',
         type=float,
         required=False,
