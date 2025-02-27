@@ -114,6 +114,22 @@ def main():
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
 
+    exclusive_group_masking = parser.add_mutually_exclusive_group()
+    exclusive_group_masking.add_argument(
+        '--t1w',
+        type=str,
+        help="T1w image for brain mask extraction (mutually exclusive with --mask). "
+             "T1w image will first be registered to the T2w magnitude image. "
+             "If not specified, no mask will be used for fitting."
+    )
+
+    exclusive_group_masking.add_argument(
+        '--mask',
+        type=str,
+        help="Binary brain mask aligned to T2w magnitude image (mutually exclusive with --t1w). "
+             "If set, it will be used directly for masking without T1w-based extraction."
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -212,9 +228,12 @@ def main():
     )
 
     use_t1w_brain_masking = args.t1w is not None
+    use_explicit_mask = args.mask is not None
 
     if use_t1w_brain_masking:
         input_dict["t1w_file"] = args.t1w
+    if use_t1w_brain_masking:
+        input_dict["mask_file"] = args.mask
 
     # set up workflow
     wf = pe.Workflow(name="process_3depi")
@@ -325,6 +344,10 @@ def main():
 
         if use_t1w_brain_masking:
             wf.connect(create_brain_mask_wf, 'output_node.out_file',
+                       estimate_relaxation_3d_epi_wf,
+                       'input_node.brain_mask_file')
+       elif use_explicit_mask:
+            wf.connect(input_node, 'mask_file',
                        estimate_relaxation_3d_epi_wf,
                        'input_node.brain_mask_file')
 
