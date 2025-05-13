@@ -337,7 +337,7 @@ def main():
             wf.connect(create_brain_mask_wf, 'output_node.out_file',
                        estimate_relaxation_3d_epi_wf,
                        'input_node.brain_mask_file')
-       elif use_explicit_mask:
+        elif use_explicit_mask:
             wf.connect(input_node, 'mask_file',
                        estimate_relaxation_3d_epi_wf,
                        'input_node.brain_mask_file')
