@@ -7,6 +7,10 @@ To clone and setup repository run
 git clone https://github.com/quantitative-mri-and-in-vivo-histology/t2_mapping_traveling_heads.git
 git submodule update --init --recursive
 ```
+After installing EPGpp (see below):
+```bash
+pip install /external/MagPhsT2
+```
 
 ### Python packages
 To install python dependencies run
