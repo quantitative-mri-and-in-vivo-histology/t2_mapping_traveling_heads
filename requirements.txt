@@ -3,3 +3,5 @@ nipype
 pybids
 antspyx
 antspynet
+pymp-pypi
+tqdm
