@@ -223,7 +223,7 @@ def main():
 
     if use_t1w_brain_masking:
         input_dict["t1w_file"] = args.t1w
-    if use_t1w_brain_masking:
+    if use_explicit_mask:
         input_dict["mask_file"] = args.mask
 
     # set up workflow
