@@ -205,7 +205,7 @@ def main():
             f"Expected fourth dimension of T2w image to have 2 times the number "
             f"elements as in rf_phase_increments (call script with '--help' for "
             f"expected format). T2w shape: {t2w_mag_image.shape}, "
-            f"rf_phase_increments: {len(args.rf_phase_increments)}.")
+            f"rf_phase_increments: {len(rf_phase_increments)}.")
 
     input_dict = dict(
         t2w_mag_file=args.t2w_mag,
