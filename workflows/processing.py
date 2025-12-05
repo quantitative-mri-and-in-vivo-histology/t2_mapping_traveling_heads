@@ -87,7 +87,9 @@ def motion_correction_mag_and_phase_workflow(base_dir=os.getcwd(),
     mcflirt = pe.Node(fsl.preprocess.MCFLIRT(), name='mcflirt')
     mcflirt.inputs.ref_vol = 0
     mcflirt.inputs.save_mats = True
-    mcflirt.inputs.cost = 'mutualinfo'
+    # mcflirt.inputs.cost = 'mutualinfo'
+    # mcflirt.inputs.mean_vol = True
+    # mcflirt.outputs.mean_img = os.path.join(mcflirt.base_dir, "mean_img.nii.gz")
     workflow.connect(input_node, 'magnitude_file', mcflirt, 'in_file')
 
     # determine mcflirt transformation directory

@@ -223,7 +223,7 @@ def main():
 
     if use_t1w_brain_masking:
         input_dict["t1w_file"] = args.t1w
-    if use_t1w_brain_masking:
+    if use_explicit_mask:
         input_dict["mask_file"] = args.mask
 
     # set up workflow
@@ -337,7 +337,7 @@ def main():
             wf.connect(create_brain_mask_wf, 'output_node.out_file',
                        estimate_relaxation_3d_epi_wf,
                        'input_node.brain_mask_file')
-       elif use_explicit_mask:
+        elif use_explicit_mask:
             wf.connect(input_node, 'mask_file',
                        estimate_relaxation_3d_epi_wf,
                        'input_node.brain_mask_file')
