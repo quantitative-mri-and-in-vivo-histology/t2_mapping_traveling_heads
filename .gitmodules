@@ -1,3 +1,6 @@
 [submodule "external/MagPhsT2"]
 	path = external/MagPhsT2
 	url = https://github.com/quantitative-mri-and-in-vivo-histology/MagPhsT2
+[submodule "external/t2greps"]
+	path = external/t2greps
+	url = https://github.com/quantitative-mri-and-in-vivo-histology/t2greps

@@ -86,7 +86,8 @@ def estimate_relaxation_ssfp(base_dir=os.getcwd(),
 
 
 def estimate_relaxation_3d_epi(base_dir=os.getcwd(),
-                             name="estimate_relaxation_3d_epi"):
+                             name="estimate_relaxation_3d_epi",
+                             fit_backend="magphst2"):
     wf = pe.Workflow(name=name)
     wf.base_dir = base_dir
 
@@ -127,10 +128,12 @@ def estimate_relaxation_3d_epi(base_dir=os.getcwd(),
         Function(input_names=["magnitude_file", "phase_file", "mask_file",
                               "b1_map_file", "repetition_time",
                               "flip_angle",
-                              "rf_phase_increments"],
+                              "rf_phase_increments",
+                              "fit_backend"],
                  output_names=["t2_map_file", "t1_map_file", "am_map_file"],
                  function=compute_t2_t1_amplitude_maps),
         name="compute_t2_t1_am")
+    compute_t2_t1_am_node.inputs.fit_backend = fit_backend
     wf.connect(input_node, "brain_mask_file",
                compute_t2_t1_am_node, "mask_file")
     wf.connect(input_node, "t2w_magnitude_file",

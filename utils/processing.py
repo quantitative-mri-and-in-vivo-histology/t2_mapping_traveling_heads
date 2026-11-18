@@ -7,9 +7,9 @@ def compute_t2_t1_amplitude_maps(magnitude_file,
                                  repetition_time,
                                  flip_angle,
                                  rf_phase_increments,
-                                 mask_file=None
+                                 mask_file=None,
+                                 fit_backend="magphst2"
                                  ):
-    from T2T1AM import cal_T2T1AM
     import os
     import nibabel as nib
     import numpy as np
@@ -25,18 +25,34 @@ def compute_t2_t1_amplitude_maps(magnitude_file,
         mask_file = os.path.join(base_dir, "mask.nii.gz")
         nib.save(mask_img, mask_file)
 
-    # compute repetition time in milliseconds for cal_T2T1AM
+    # compute repetition time in milliseconds for the fit
     repetition_time_ms = 1000 * repetition_time
 
-    # fit T1, T2, AM
-    cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file,
-               repetition_time_ms, flip_angle, rf_phase_increments,
-               outputdir=output_dir)
+    # fit T1, T2, AM (both backends write T1 and T2 in milliseconds)
+    if fit_backend == "magphst2":
+        from T2T1AM import cal_T2T1AM
+        cal_T2T1AM(magnitude_file, phase_file, mask_file, b1_map_file,
+                   repetition_time_ms, flip_angle, rf_phase_increments,
+                   outputdir=output_dir)
 
-    # define fixed output paths (used by cal_T2T1AM)
-    t2_map_file = os.path.join(base_dir, "T2_.nii.gz")
-    t1_map_file = os.path.join(base_dir, "T1_.nii.gz")
-    am_map_file = os.path.join(base_dir, "Am_.nii.gz")
+        # define fixed output paths (used by cal_T2T1AM)
+        t2_map_file = os.path.join(base_dir, "T2_.nii.gz")
+        t1_map_file = os.path.join(base_dir, "T1_.nii.gz")
+        am_map_file = os.path.join(base_dir, "Am_.nii.gz")
+    elif fit_backend == "t2greps":
+        import t2greps
+        paths, _ = t2greps.fit_nifti(magnitude_file, phase_file,
+                                     tr=repetition_time_ms,
+                                     flip_angle=flip_angle,
+                                     phase_increments=rf_phase_increments,
+                                     output_dir=output_dir,
+                                     mask=mask_file, b1=b1_map_file,
+                                     b1_units="percent")
+        t2_map_file = paths["T2"]
+        t1_map_file = paths["T1"]
+        am_map_file = paths["amplitude"]
+    else:
+        raise ValueError(f"unknown fit_backend: {fit_backend}")
 
     # compute T1 in seconds and save
     t1_map_msec_nib = nib.load(t1_map_file)

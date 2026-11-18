@@ -101,6 +101,13 @@ def main():
         default=False,
         help="If set, only preprocessing will be performed."
     )
+    parser.add_argument(
+        '--fit_backend',
+        choices=['magphst2', 't2greps'],
+        default='magphst2',
+        help="Fitting backend for T2, T1 and amplitude: 'magphst2' (default) "
+             "or 't2greps' (direct steady-state computation, much faster)."
+    )
     parser.add_argument('--n_procs', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of processors to use (default: all available cores).')
@@ -321,7 +328,8 @@ def main():
     if not args.preprocess_only:
 
         # estimate relaxation parameter maps
-        estimate_relaxation_3d_epi_wf = estimate_relaxation_3d_epi()
+        estimate_relaxation_3d_epi_wf = estimate_relaxation_3d_epi(
+            fit_backend=args.fit_backend)
         wf.connect([(preprocess_3depi_wf, estimate_relaxation_3d_epi_wf, [
             ('output_node.b1_map_file', 'input_node.b1_map_file'),
             ('output_node.magnitude_file', 'input_node.t2w_magnitude_file'),
